@@ -1,0 +1,6 @@
+{
+  "name": "Sabreen Basheer Natural Care",
+  "description": "متجر صابرين بشير للعناية الطبيعية والبشرة - منتجات تجميل طبيعية فاخرة، صابون، زيوت وكريمات مرطبة بالشيكل مع لوحة تحكم وإدارة طلبات كاملة",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
