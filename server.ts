@@ -2,8 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import { createServer as createViteServer } from 'vite';
-import { Product, Order, StoreSettings } from './src/types';
+import type { Product, Order, StoreSettings } from './src/types';
 
 // Persistent store state is kept in Supabase.
 // IMPORTANT: SUPABASE_SERVICE_ROLE_KEY is a server-only secret. Never expose it in the browser.
@@ -33,7 +32,7 @@ async function supabaseRequest(pathname: string, options: RequestInit = {}) {
 }
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 
 // Trust reverse proxy (e.g. Cloud Run, Nginx) for accurate client IP identification
 app.set('trust proxy', 1);
@@ -159,9 +158,7 @@ function isOrderRateLimited(ip: string): boolean {
   }
   limit.count += 1;
   return false;
-}
-
-// Security & Brute-force protection tracking
+}// Security & Brute-force protection tracking
 interface LoginAttempt {
   count: number;
   lastAttempt: number;
@@ -222,110 +219,7 @@ function verifyPassword(providedPassword: string, salt: string, storedHash: stri
     console.error('Password verification error:', err);
   }
   return false;
-}
-
-// Initial default products
-const now = Date.now();
-const ONE_DAY = 24 * 60 * 60 * 1000;
-
-const initialProducts: Product[] = [
-  {
-    id: 'prod-1',
-    name: 'صابون الغار وزيت الزيتون العضوي',
-    description: 'صابون بلدي تقليدي فاخر مصنوع على البارد من أجود أنواع زيت الزيتون الفلسطيني النقي وخلاصة ورق الغار الطبيعي. ينظف بلطف ويغذي البشرة الجافة والحساسة.',
-    price: 35,
-    category: 'صابون',
-    image: 'https://images.unsplash.com/photo-1607006314594-ef8879685162?auto=format&fit=crop&w=800&q=80',
-    stock: 25,
-    hidden: false,
-    isBestSeller: true,
-    createdAt: now - ONE_DAY * 2, // 2 days ago -> New!
-    volume: '150 غرام',
-    benefits: ['مرطب عميق للبشرة', 'مناسب للبشرة الحساسة والإكزيما', 'خالٍ من العطور الصناعية والكيماويات'],
-    usage: 'يُدلك على بشرة مبللة حتى تتكون رغوة غنية وناعمة، ثم يُشطف بالماء الفاتر.',
-    ingredients: 'زيت زيتون بكر ممتاز، زيت غار نقي، هيدروكسيد الصوديوم، ماء مقطر.'
-  },
-  {
-    id: 'prod-2',
-    name: 'سيروم الورد الدمشقي وفيتامين C للنضارة',
-    description: 'إكسير نضارة مكثف غني بمستخلص الورد الدمشقي العضوي مع فيتامين C الطبيعي من ثمار الورد. يوحد لون البشرة ويمنحها إشراقة وتوهجاً مخملياً.',
-    price: 110,
-    category: 'كريمات',
-    image: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?auto=format&fit=crop&w=800&q=80',
-    stock: 18,
-    hidden: false,
-    isBestSeller: true,
-    createdAt: now - ONE_DAY * 1, // 1 day ago -> New!
-    volume: '30 مل',
-    benefits: ['تفتيح وتوحيد لون البشرة', 'مقاومة الخطوط الرفيعة والتصبغات', 'ترطيب عميق وسريع الامتصاص'],
-    usage: 'توضع 3-4 قطرات على الوجه والرقبة النظيفين صباحاً ومساءً قبل المرطب.',
-    ingredients: 'ماء الورد الدمشقي، زيت بذور ثمار الورد، حمض الهيالورونيك النباتي، فيتامين C المستقر، فيتامين E.'
-  },
-  {
-    id: 'prod-3',
-    name: 'زيت إكليل الجبل والروزماري لإنبات وتكثيف الشعر',
-    description: 'تركيبة زيتية طبيعية مركزة بنسبة 100% من زيت إكليل الجبل النقي وزيت الخروع الأسود وزيت الأرغان. يحفز الدورة الدموية في فروة الرأس ويوقف التساقط ويعزز كثافة الشعر.',
-    price: 85,
-    category: 'زيوت شعر',
-    image: 'https://images.unsplash.com/photo-1608248597359-46700c25a58a?auto=format&fit=crop&w=800&q=80',
-    stock: 30,
-    hidden: false,
-    isBestSeller: true,
-    createdAt: now - ONE_DAY * 3, // 3 days ago -> New!
-    volume: '50 مل',
-    benefits: ['تحفيز نمو بصيلات الشعر وإنبات الفراغات', 'تقوية جذور الشعر ومنع التقصف', 'تهدئة حكة وقشرة الرأس'],
-    usage: 'توضع قطرات على فروة الرأس وتُدلك بأطراف الأصابع لمدة 5 دقائق. يُترك من ساعتين إلى ليلة كاملة ثم يُغسل.',
-    ingredients: 'زيت إكليل الجبل النقي، زيت خروع نقي، زيت جوجوبا، زيت أرغان مغربي، زيت النعناع الفلفلي.'
-  },
-  {
-    id: 'prod-4',
-    name: 'زبدة الشيا المخفوقة مع زيت اللوز والفانيليا',
-    description: 'زبدة جسم غنية وفاخرة مخفوقة بقوام سحابي ناعم، تذوب فور ملامسة الجلد لتمنح ترطيباً يدوم 48 ساعة مع رائحة فانيليا طبيعية دافئة ومريحة.',
-    price: 65,
-    category: 'عناية شخصية',
-    image: 'https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?auto=format&fit=crop&w=800&q=80',
-    stock: 20,
-    hidden: false,
-    isBestSeller: false,
-    createdAt: now - ONE_DAY * 10, // Older than 7 days
-    volume: '200 مل',
-    benefits: ['علاج تشققات وجفاف الجلد الشديد', 'مرونة ونعومة حريرية للجسم', 'آمنة تماماً وطبيعية 100%'],
-    usage: 'يُدلك كامل الجسم بعد الاستحمام مباشرة أو عند الحاجة للترطيب المكثف.',
-    ingredients: 'زبدة شيا عضوية غير مكررة، زيت اللوز الحلو، زيت جوز الهند البكر، خلاصة الفانيليا الطبيعية.'
-  },
-  {
-    id: 'prod-5',
-    name: 'مقشر القهوة العربية والزيوت المغذية للجسم',
-    description: 'سكراب طبيعي منعش بحبيبات البن العربي المحمص مع السكر البني وزيت اللوز. يقشر خلايا الجلد الميتة، يحسن مظهر السيلوليت ويترك البشرة ناعمة كالحرير.',
-    price: 55,
-    category: 'مقشرات وأقنعة',
-    image: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&w=800&q=80',
-    stock: 15,
-    hidden: false,
-    isBestSeller: false,
-    createdAt: now - ONE_DAY * 4, // 4 days ago -> New!
-    volume: '250 غرام',
-    benefits: ['إزالة الجلد الميت والشعر تحت الجلد', 'تنشيط الدورة الدموية ومقاومة السيلوليت', 'رائحة قهوة منعشة وطاقة للجسم'],
-    usage: 'يُفرك بحركات دائرية لطيفة على بشرة رطبة أثناء الاستحمام لمدة 3-5 دقائق ثم يُشطف.',
-    ingredients: 'قهوة عربية مطحونة، سكر قصب عضوي، زيت لوز حلو، زيت فيتامين E، زيت قرفة خفيف.'
-  },
-  {
-    id: 'prod-6',
-    name: 'كريم الليل المرمم بخلاصة اللبان الذكر وحمض الهيالورونيك',
-    description: 'كريم ليلي مجدد للبشرة بخصائص صمغ اللبان الذكر العماني الكولاجينية الطبيعية. يشد البشرة، يقلل الخطوط التعبيرية، ويستعيد حيويتها أثناء النوم.',
-    price: 120,
-    category: 'كريمات',
-    image: 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?auto=format&fit=crop&w=800&q=80',
-    stock: 12,
-    hidden: false,
-    isBestSeller: true,
-    createdAt: now - ONE_DAY * 14,
-    volume: '50 مل',
-    benefits: ['كولاجين طبيعي لشد وتجديد البشرة', 'تقليل مظهر التجاعيد والتجويفات', 'تغذية ليلية فائقة دون انسداد المسام'],
-    usage: 'يُوزع كمية مناسبة على الوجه والرقبة مساءً بحركات تصاعدية لطيفة قبل النوم.',
-    ingredients: 'مستخلص لبان الذكر الأصلي، ماء ورد، زيت بذور الرمان، زبدة الكاكاو، حمض الهيالورونيك الطبيعي.'
-  },
-  {
+}  {
     id: 'prod-7',
     name: 'صابونة حليب الماعز والعسل الطبيعي',
     description: 'صابون فائق النعومة مخصص للبشرة الجافة والحساسة والطفولية، غني بأحماض ألفا هيدروكسي الطبيعية من حليب الماعز الطازج والعسل الجبلي الصافي.',
@@ -506,190 +400,7 @@ app.post('/api/orders', async (req, res) => {
 
   const data = getStoreData();
 
-  // Calculate total with strict validation
-  let totalAmount = 0;
-  const verifiedItems = items.slice(0, 50).map((item: any) => {
-    const product = data.products.find(p => p.id === item.productId);
-    const itemPrice = product ? product.price : (Number(item.price) || 0);
-    const quantity = Math.min(Math.max(1, parseInt(item.quantity, 10) || 1), 99);
-    totalAmount += itemPrice * quantity;
-    return {
-      productId: sanitizeString(item.productId, 50),
-      productName: product ? product.name : sanitizeString(item.productName || 'منتج', 100),
-      price: itemPrice,
-      quantity,
-      image: product ? product.image : (typeof item.image === 'string' ? item.image.slice(0, 500) : '')
-    };
-  });
-
-  // Add delivery fee if applicable
-  const shippingFee = data.settings.shippingFee || 0;
-  const finalTotal = totalAmount + shippingFee;
-
-  const newOrder: Order = {
-    id: `SB-${Math.floor(1000 + Math.random() * 9000)}`,
-    createdAt: Date.now(),
-    customerName: cleanName,
-    phone: cleanPhone,
-    deliveryZone: cleanZone,
-    address: cleanAddress,
-    transferInfo: cleanTransferInfo,
-    receiptImage,
-    items: verifiedItems,
-    totalAmount: finalTotal,
-    status: 'pending'
-  };
-
-  data.orders.unshift(newOrder);
-  await saveStoreData(data);
-
-  res.status(201).json({
-    success: true,
-    message: 'تم استلام طلبك بنجاح وسنتواصل معك بعد تدقيق التحويل!',
-    order: newOrder
-  });
-});
-
-// --- ADMIN SECURE ROUTES ---
-
-// Admin Login with advanced brute force attack protection & timing-safe checks
-app.post('/api/admin/login', (req, res) => {
-  const { username, password } = req.body;
-  const clientIp = ((req.headers['x-forwarded-for'] as string)?.split(',')[0].trim()) || req.socket.remoteAddress || 'unknown';
-
-  const attempt = loginAttempts.get(clientIp) || { count: 0, lastAttempt: Date.now() };
-
-  // Check if IP is currently locked out
-  if (attempt.lockedUntil && Date.now() < attempt.lockedUntil) {
-    const remainingSeconds = Math.ceil((attempt.lockedUntil - Date.now()) / 1000);
-    const remainingMinutes = Math.ceil(remainingSeconds / 60);
-    return res.status(429).json({
-      success: false,
-      error: `تم قفل محاولات الدخول مؤقتاً لحماية المتجر بعد تكرار المحاولات الخاطئة. الرجاء الانتظار ${remainingMinutes} دقيقة (${remainingSeconds} ثانية) قبل المحاولة مجدداً.`
-    });
-  }
-
-  const data = getStoreData();
-
-  if (!username || !password) {
-    return res.status(400).json({ success: false, error: 'يرجى إدخال اسم المستخدم وكلمة السر' });
-  }
-
-  // Constant-time and timing-safe password check
-  const isUsernameMatch = username.trim().toLowerCase() === data.admin.username.toLowerCase();
-  const isPasswordMatch = verifyPassword(password, data.admin.salt, data.admin.passwordHash);
-  const isValid = isUsernameMatch && isPasswordMatch;
-
-  if (!isValid) {
-    attempt.count += 1;
-    attempt.lastAttempt = Date.now();
-    if (attempt.count >= 5) {
-      // Lock for 15 minutes after 5 consecutive failed attempts
-      attempt.lockedUntil = Date.now() + 15 * 60 * 1000;
-      loginAttempts.set(clientIp, attempt);
-      return res.status(429).json({
-        success: false,
-        error: 'تم حظر محاولات الدخول مؤقتاً لمدة 15 دقيقة بعد 5 محاولات فاشلة متتالية لحماية حساب الإدارة من هجمات التخمين.'
-      });
-    }
-    loginAttempts.set(clientIp, attempt);
-    const triesLeft = 5 - attempt.count;
-    return res.status(401).json({
-      success: false,
-      error: `اسم المستخدم أو كلمة السر غير صحيحة. متبقي ${triesLeft} محاولات قبل القفل الأمني المؤقت لحسابك.`
-    });
-  }
-
-  // Reset attempt count on successful authentication
-  loginAttempts.delete(clientIp);
-
-  // Generate cryptographically secure 512-bit token
-  const token = crypto.randomBytes(64).toString('hex');
-  const currentTime = Date.now();
-  activeAdminSessions.set(token, {
-    token,
-    createdAt: currentTime,
-    lastActive: currentTime,
-    username: data.admin.username,
-    ip: clientIp
-  });
-  saveSessions();
-
-  res.json({
-    success: true,
-    token,
-    username: data.admin.username,
-    message: 'تم تسجيل الدخول بنجاح إلى لوحة التحكم'
-  });
-});
-
-// Admin Verify Token
-app.get('/api/admin/verify', requireAdminAuth, (req, res) => {
-  const data = getStoreData();
-  res.json({ success: true, username: data.admin.username });
-});
-
-// Protected endpoint to get current admin username
-app.get('/api/admin/current-user', requireAdminAuth, (req, res) => {
-  const data = getStoreData();
-  res.json({ success: true, username: data.admin.username });
-});
-
-// Admin Logout - Immediately and permanently revokes active session token
-app.post('/api/admin/logout', (req, res) => {
-  let token: string | undefined;
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    token = authHeader.split(' ')[1];
-  } else if (req.body?.token) {
-    token = req.body.token;
-  }
-  if (token) {
-    activeAdminSessions.delete(token);
-    saveSessions();
-  }
-  res.json({ success: true, message: 'تم إنهاء الجلسة وإلغاء التصريح بنجاح' });
-});
-
-// Admin: Get all orders
-app.get('/api/admin/orders', requireAdminAuth, (req, res) => {
-  const data = getStoreData();
-  res.json({ success: true, orders: data.orders });
-});
-
-// Admin: Update order status (Approve with note / Reject with reason / Mark completed)
-app.put('/api/admin/orders/:id', requireAdminAuth, async (req, res) => {
-  const { id } = req.params;
-  const { status, adminNote, rejectionReason } = req.body;
-
-  const data = getStoreData();
-  const orderIndex = data.orders.findIndex(o => o.id === id);
-
-  if (orderIndex === -1) {
-    return res.status(404).json({ success: false, error: 'الطلب غير موجود' });
-  }
-
-  if (status) data.orders[orderIndex].status = status;
-  if (adminNote !== undefined) data.orders[orderIndex].adminNote = adminNote;
-  if (rejectionReason !== undefined) data.orders[orderIndex].rejectionReason = rejectionReason;
-
-  await saveStoreData(data);
-  res.json({ success: true, order: data.orders[orderIndex] });
-});
-
-// Admin: Delete order (e.g. completed order removed from record)
-app.delete('/api/admin/orders/:id', requireAdminAuth, async (req, res) => {
-  const { id } = req.params;
-  const data = getStoreData();
-
-  const initialLength = data.orders.length;
-  data.orders = data.orders.filter(o => o.id !== id);
-
-  if (data.orders.length === initialLength) {
-    return res.status(404).json({ success: false, error: 'الطلب غير موجود' });
-  }
-
-  await saveStoreData(data);
+  // Calculate total with strict validation  await saveStoreData(data);
   res.json({ success: true, message: 'تم حذف الطلب بنجاح من السجل' });
 });
 
@@ -832,6 +543,7 @@ app.put('/api/admin/change-credentials', requireAdminAuth, async (req, res) => {
 async function startServer() {
   await initializePersistence();
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
