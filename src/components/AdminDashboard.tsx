@@ -4,9 +4,9 @@ import {
   Clock, CheckCircle, XCircle, Trash2, Plus, Edit, Eye, EyeOff,
   Phone, MessageCircle, ExternalLink, AlertTriangle, Sparkles, Image,
   DollarSign, ShieldAlert, ArrowLeft, RefreshCw, Layers, Lock, ShieldCheck,
-  Facebook, Instagram
+  Facebook, Instagram, MailQuestion, MailOpen
 } from 'lucide-react';
-import { Product, Order, StoreSettings, OrderStatus } from '../types';
+import { Product, Order, StoreSettings, OrderStatus, Inquiry } from '../types';
 import {
   fetchAdminOrders,
   fetchAdminProducts,
@@ -16,7 +16,10 @@ import {
   updateProduct,
   deleteProduct,
   updateStoreSettings,
-  changeAdminCredentials
+  changeAdminCredentials,
+  fetchAdminInquiries,
+  updateInquiryStatus,
+  deleteInquiry
 } from '../services/api';
 
 interface AdminDashboardProps {
@@ -40,7 +43,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onProductsUpdated,
   onCredentialsUpdated,
 }) => {
-  const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'settings' | 'security'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'inquiries' | 'products' | 'settings' | 'security'>('orders');
 
   // Orders State
   const [orders, setOrders] = useState<Order[]>([]);
@@ -50,10 +53,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [actionType, setActionType] = useState<'approve' | 'reject' | null>(null);
   const [actionNote, setActionNote] = useState('');
 
+  // Inquiries State
+  const [inquiries, setInquiries] = useState<Inquiry[]>([]);
+  const [inquiryFilter, setInquiryFilter] = useState<string>('all');
+
   // Delete Confirmation Modal State (replaces blocked window.confirm)
   const [deleteConfirm, setDeleteConfirm] = useState<{
     isOpen: boolean;
-    type: 'order' | 'product';
+    type: 'order' | 'product' | 'inquiry';
     id: string;
     title: string;
     extraInfo?: string;
@@ -178,9 +185,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  const loadInquiries = async () => {
+    try {
+      const data = await fetchAdminInquiries(token);
+      setInquiries(data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   useEffect(() => {
     loadOrders();
     loadProducts();
+    loadInquiries();
   }, [token]);
 
   const showNotification = (text: string, type: 'success' | 'error' = 'success') => {
@@ -239,6 +256,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  // --- INQUIRY HANDLERS ---
+  const handleToggleInquiryStatus = async (inquiry: Inquiry) => {
+    const newStatus: Inquiry['status'] = inquiry.status === 'unread' ? 'read' : 'unread';
+    const success = await updateInquiryStatus(token, inquiry.id, newStatus);
+    if (success) {
+      loadInquiries();
+    } else {
+      showNotification('تعذر تحديث حالة الاستفسار', 'error');
+    }
+  };
+
   // --- DELETE CONFIRMATION HANDLERS (Custom In-App Modal) ---
   const triggerDeleteOrder = (order: Order) => {
     setDeleteConfirm({
@@ -249,6 +277,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       extraInfo: `المبلغ: ${order.totalAmount} ₪ | الحالة: ${
         order.status === 'rejected' ? 'مرفوض' : order.status === 'completed' ? 'مكتمل' : 'معلق'
       }`,
+    });
+  };
+
+  const triggerDeleteInquiry = (inquiry: Inquiry) => {
+    setDeleteConfirm({
+      isOpen: true,
+      type: 'inquiry',
+      id: inquiry.id,
+      title: `استفسار من: ${inquiry.name}`,
+      extraInfo: `الهاتف: ${inquiry.phone}`,
     });
   };
 
@@ -283,6 +321,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onProductsUpdated();
         } else {
           showNotification('تعذر حذف المنتج، يرجى المحاولة مرة أخرى', 'error');
+        }
+      } else if (deleteConfirm.type === 'inquiry') {
+        const success = await deleteInquiry(token, deleteConfirm.id);
+        if (success) {
+          showNotification('تم حذف الاستفسار بنجاح من السجل');
+          await loadInquiries();
+        } else {
+          showNotification('تعذر حذف الاستفسار، يرجى المحاولة مرة أخرى', 'error');
         }
       }
     } catch (err) {
@@ -502,6 +548,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return p.category === productCategoryFilter;
   });
 
+  // Computed Inquiries Statistics
+  const unreadInquiriesCount = inquiries.filter((i) => i.status === 'unread').length;
+  const filteredInquiries = inquiries.filter((inq) => {
+    if (inquiryFilter === 'all') return true;
+    return inq.status === inquiryFilter;
+  });
+
   return (
     <div className="fixed inset-0 z-50 bg-[#0E0E10] text-[#FAF7F2] overflow-y-auto flex flex-col font-sans" dir="rtl">
       
@@ -560,6 +613,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </button>
 
             <button
+              onClick={() => setActiveTab('inquiries')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                activeTab === 'inquiries'
+                  ? 'bg-gradient-to-r from-[#D4AF37] to-[#B38938] text-[#0E0E10] shadow-md'
+                  : 'text-[#FAF7F2]/75 hover:text-[#FAF7F2] hover:bg-[#25252A]'
+              }`}
+            >
+              <MailQuestion className="w-4 h-4" />
+              <span>الاستفسارات</span>
+              {unreadInquiriesCount > 0 && (
+                <span className="bg-rose-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-full shadow-sm">
+                  {unreadInquiriesCount}
+                </span>
+              )}
+            </button>
+
+            <button
               onClick={() => setActiveTab('products')}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
                 activeTab === 'products'
@@ -602,6 +672,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               onClick={() => {
                 loadOrders();
                 loadProducts();
+                loadInquiries();
                 showNotification('تم تحديث البيانات من الخادم');
               }}
               className="p-2 text-[#FAF7F2]/70 hover:text-[#D4AF37] rounded-xl hover:bg-[#202024] transition-colors"
@@ -635,6 +706,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {pendingCount > 0 && (
             <span className="bg-rose-600 text-white text-[10px] px-1 rounded-full">
               {pendingCount}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('inquiries')}
+          className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 ${
+            activeTab === 'inquiries' ? 'bg-[#D4AF37] text-[#0E0E10]' : 'text-[#FAF7F2]/70'
+          }`}
+        >
+          <span>الاستفسارات</span>
+          {unreadInquiriesCount > 0 && (
+            <span className="bg-rose-600 text-white text-[10px] px-1 rounded-full">
+              {unreadInquiriesCount}
             </span>
           )}
         </button>
@@ -1002,6 +1086,166 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+          </div>
+        )}
+
+        {/* ===================== TAB: INQUIRIES ===================== */}
+        {activeTab === 'inquiries' && (
+          <div className="space-y-6">
+
+            {/* Quick Metrics Banner */}
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+              <div className="p-4 rounded-2xl bg-[#17171A] border border-[#27272D] text-right space-y-1 shadow-sm">
+                <span className="text-[11px] text-[#A8A295] block font-medium">إجمالي الاستفسارات</span>
+                <span className="text-xl sm:text-2xl font-black text-[#FAF7F2]">{inquiries.length}</span>
+                <span className="text-[10px] text-[#D4AF37] block">استفسار مسجل بالمتجر</span>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#17171A] border border-[#27272D] text-right space-y-1 shadow-sm">
+                <span className="text-[11px] text-amber-400 block font-medium">لم يُقرأ بعد</span>
+                <span className="text-xl sm:text-2xl font-black text-amber-300">{unreadInquiriesCount}</span>
+                <span className="text-[10px] text-[#A8A295] block">تحتاج مراجعة ورد</span>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#17171A] border border-[#27272D] text-right space-y-1 shadow-sm">
+                <span className="text-[11px] text-emerald-400 block font-medium">تمت قراءتها</span>
+                <span className="text-xl sm:text-2xl font-black text-emerald-300">{inquiries.length - unreadInquiriesCount}</span>
+                <span className="text-[10px] text-[#A8A295] block">تمت مراجعتها سابقاً</span>
+              </div>
+            </div>
+
+            {/* Inquiries Header & Filter Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#17171A] p-4 sm:p-5 rounded-2xl border border-[#27272D]">
+              <div>
+                <h2 className="text-lg font-bold text-[#FAF7F2] font-serif-luxury">
+                  استفسارات ورسائل الزبائن من صفحة "تواصل"
+                </h2>
+                <p className="text-xs text-[#A8A295] mt-0.5">
+                  يمكنك مراجعة الاستفسار، التواصل مع الزبون مباشرة عبر واتساب، أو تحديده كمقروء أو حذفه.
+                </p>
+              </div>
+
+              {/* Status Filters */}
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { id: 'all', label: `الكل (${inquiries.length})` },
+                  { id: 'unread', label: `لم يُقرأ (${unreadInquiriesCount})` },
+                  { id: 'read', label: `مقروء (${inquiries.length - unreadInquiriesCount})` },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => setInquiryFilter(f.id)}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      inquiryFilter === f.id
+                        ? 'bg-[#D4AF37] text-[#0E0E10] shadow-sm'
+                        : 'bg-[#222227] text-[#FAF7F2]/75 hover:text-white hover:bg-[#2A2A30]'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Inquiries List */}
+            {filteredInquiries.length === 0 ? (
+              <div className="bg-[#17171A] rounded-2xl p-12 text-center border border-[#27272D] text-[#FAF7F2]/50">
+                <MailQuestion className="w-12 h-12 mx-auto mb-3 text-[#D4AF37]/40" />
+                <p className="text-sm font-semibold text-[#FAF7F2]/80">لا توجد استفسارات في هذا القسم حالياً</p>
+                <p className="text-xs text-[#A8A295] mt-1">أي رسالة يرسلها الزبائن من صفحة "تواصل" ستظهر هنا تلقائياً</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {filteredInquiries.map((inquiry) => (
+                  <div
+                    key={inquiry.id}
+                    className={`bg-[#17171A] rounded-2xl border ${
+                      inquiry.status === 'unread' ? 'border-amber-600/30' : 'border-[#27272D]'
+                    } p-4 sm:p-5 space-y-4 shadow-lg`}
+                  >
+                    {/* Inquiry Head */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#25252A]">
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-sm text-[#D4AF37]">
+                          {inquiry.name}
+                        </span>
+                        <span className="text-xs text-[#A8A295]">
+                          {new Date(inquiry.createdAt).toLocaleString('ar-EG')}
+                        </span>
+                      </div>
+
+                      <span
+                        className={`text-xs font-bold px-3 py-1 rounded-full border ${
+                          inquiry.status === 'unread'
+                            ? 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+                            : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                        }`}
+                      >
+                        {inquiry.status === 'unread' ? 'لم يُقرأ بعد' : 'مقروء'}
+                      </span>
+                    </div>
+
+                    {/* Message Body */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                      <div className="lg:col-span-4 space-y-2 text-xs bg-[#1F1F24] p-3.5 rounded-xl border border-[#2B2B32]">
+                        <span className="font-bold text-[#D4AF37] block text-xs">بيانات التواصل:</span>
+                        <div className="flex justify-between items-center text-[#FAF7F2]">
+                          <span className="text-[#A8A295]">الهاتف:</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold">{inquiry.phone}</span>
+                            <a
+                              href={`https://wa.me/${inquiry.phone.replace(/[^0-9]/g, '')}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-emerald-400 hover:text-emerald-300 p-1 rounded bg-emerald-950/40"
+                              title="محادثة واتساب"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="lg:col-span-8 space-y-1.5 text-xs bg-[#1F1F24] p-3.5 rounded-xl border border-[#2B2B32]">
+                        <span className="font-bold text-[#D4AF37] block text-xs">نص الرسالة:</span>
+                        <p className="text-[#FAF7F2] leading-relaxed whitespace-pre-wrap">{inquiry.message}</p>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                      <button
+                        onClick={() => handleToggleInquiryStatus(inquiry)}
+                        className="px-3 py-2 rounded-xl bg-[#222227] hover:bg-[#2A2A30] text-[#FAF7F2]/80 hover:text-[#D4AF37] transition-colors text-xs font-bold flex items-center gap-1.5"
+                        title={inquiry.status === 'unread' ? 'تحديد كمقروء' : 'تحديد كغير مقروء'}
+                      >
+                        {inquiry.status === 'unread' ? (
+                          <>
+                            <MailOpen className="w-3.5 h-3.5" />
+                            <span>تحديد كمقروء</span>
+                          </>
+                        ) : (
+                          <>
+                            <MailQuestion className="w-3.5 h-3.5" />
+                            <span>تحديد كغير مقروء</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        onClick={() => triggerDeleteInquiry(inquiry)}
+                        className="p-2 rounded-xl text-[#A8A295] hover:text-rose-400 hover:bg-rose-950/30 transition-colors text-xs flex items-center gap-1"
+                        title="حذف الاستفسار"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>حذف</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
 
@@ -1592,11 +1836,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
               <div>
                 <h3 className="text-base font-bold text-[#FAF7F2] font-serif-luxury">
-                  {deleteConfirm.type === 'order' ? 'تأكيد حذف الطلب نهائياً' : 'تأكيد حذف المنتج نهائياً'}
+                  {deleteConfirm.type === 'order'
+                    ? 'تأكيد حذف الطلب نهائياً'
+                    : deleteConfirm.type === 'inquiry'
+                    ? 'تأكيد حذف الاستفسار نهائياً'
+                    : 'تأكيد حذف المنتج نهائياً'}
                 </h3>
                 <p className="text-xs text-[#A8A295] mt-0.5">
                   {deleteConfirm.type === 'order'
                     ? 'سيتم مسح هذا الطلب وصورة إيصاله نهائياً من السجل.'
+                    : deleteConfirm.type === 'inquiry'
+                    ? 'سيتم مسح هذا الاستفسار نهائياً من السجل.'
                     : 'سيتم مسح هذا المنتج بالكامل من المتجر وقائمة المنتجات.'}
                 </p>
               </div>

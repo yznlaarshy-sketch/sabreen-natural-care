@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { MessageCircle, Instagram, Facebook, Phone, MapPin, Mail, Clock, Send, Check, Truck, CreditCard } from 'lucide-react';
+import { MessageCircle, Instagram, Facebook, Phone, MapPin, Mail, Clock, Send, Check, Truck, CreditCard, Loader2 } from 'lucide-react';
 import { StoreSettings } from '../types';
+import { submitInquiry } from '../services/api';
 
 interface ContactPageProps {
   settings: StoreSettings | null;
@@ -11,11 +12,31 @@ export const ContactPage: React.FC<ContactPageProps> = ({ settings }) => {
   const [formPhone, setFormPhone] = useState('');
   const [formMsg, setFormMsg] = useState('');
   const [sent, setSent] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formName || !formMsg) return;
-    setSent(true);
+    if (!formName || !formPhone || !formMsg || submitting) return;
+
+    setSubmitting(true);
+    setFormError('');
+
+    try {
+      const result = await submitInquiry({ name: formName, phone: formPhone, message: formMsg });
+      if (result.success) {
+        setSent(true);
+        setFormName('');
+        setFormPhone('');
+        setFormMsg('');
+      } else {
+        setFormError(result.error || 'تعذر إرسال رسالتك، يرجى المحاولة مرة أخرى.');
+      }
+    } catch {
+      setFormError('تعذر الاتصال بالخادم، يرجى التحقق من اتصالك بالإنترنت والمحاولة مرة أخرى.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const whatsappClean = settings?.whatsappNumber?.replace(/[^0-9]/g, '') || '';
@@ -219,12 +240,28 @@ export const ContactPage: React.FC<ContactPageProps> = ({ settings }) => {
                   />
                 </div>
 
+                {formError && (
+                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 text-[11px] font-semibold">
+                    {formError}
+                  </div>
+                )}
+
                 <button
                   type="submit"
-                  className="w-full py-3.5 px-4 rounded-xl bg-[#0F0F10] hover:bg-[#D4AF37] text-[#FAF8F5] hover:text-[#0F0F10] font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2"
+                  disabled={submitting}
+                  className="w-full py-3.5 px-4 rounded-xl bg-[#0F0F10] hover:bg-[#D4AF37] text-[#FAF8F5] hover:text-[#0F0F10] font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <Send className="w-4 h-4" />
-                  <span>إرسال الرسالة</span>
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>جاري الإرسال...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      <span>إرسال الرسالة</span>
+                    </>
+                  )}
                 </button>
               </form>
             )}

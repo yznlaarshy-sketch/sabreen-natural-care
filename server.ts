@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import type { Product, Order, StoreSettings } from './src/types';
+import type { Product, Order, StoreSettings, Inquiry } from './src/types';
 
 // Persistent store state is kept in Supabase.
 // IMPORTANT: SUPABASE_SERVICE_ROLE_KEY is a server-only secret. Never expose it in the browser.
@@ -98,6 +98,7 @@ function createInitialStoreData(): StoreData {
     if (fs.existsSync(seedFile)) {
       const seeded = JSON.parse(fs.readFileSync(seedFile, 'utf-8')) as StoreData;
       if (seeded && Array.isArray(seeded.products) && seeded.settings && seeded.admin) {
+        if (!Array.isArray(seeded.inquiries)) seeded.inquiries = [];
         return seeded;
       }
     }
@@ -108,6 +109,7 @@ function createInitialStoreData(): StoreData {
   return {
     products: initialProducts,
     orders: [],
+    inquiries: [],
     settings: defaultSettings,
     admin: { username: 'sabreen', salt: defaultAdminSalt, passwordHash: defaultAdminHash }
   };
@@ -128,6 +130,9 @@ async function saveStoreData(data: StoreData): Promise<void> {
 async function initializePersistence(): Promise<void> {
   const remote = await loadStoreDataFromSupabase();
   if (remote) {
+    // Backward-compatibility: older store states saved before the inquiries
+    // feature existed won't have this field yet.
+    if (!Array.isArray(remote.inquiries)) remote.inquiries = [];
     runtimeStoreData = remote;
     console.log('Persistence: Supabase (existing store state loaded)');
     return;
@@ -151,6 +156,23 @@ function isOrderRateLimited(ip: string): boolean {
   const limit = orderRateLimits.get(ip);
   if (!limit || now > limit.resetTime) {
     orderRateLimits.set(ip, { count: 1, resetTime: now + 15 * 60 * 1000 });
+    return false;
+  }
+  if (limit.count >= 10) {
+    return true;
+  }
+  limit.count += 1;
+  return false;
+}
+
+// Inquiry submission anti-spam rate limiting (max 10 inquiries per 15 min per IP)
+const inquiryRateLimits = new Map<string, OrderRateLimit>();
+
+function isInquiryRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const limit = inquiryRateLimits.get(ip);
+  if (!limit || now > limit.resetTime) {
+    inquiryRateLimits.set(ip, { count: 1, resetTime: now + 15 * 60 * 1000 });
     return false;
   }
   if (limit.count >= 10) {
@@ -384,6 +406,7 @@ const defaultAdminHash = '7dbf329c7c707d4bcd9b11ce1561737c5a09e47e0ac595b8d2f1c6
 interface StoreData {
   products: Product[];
   orders: Order[];
+  inquiries: Inquiry[];
   settings: StoreSettings;
   admin: {
     username: string;
@@ -549,6 +572,61 @@ app.post('/api/orders', async (req, res) => {
   });
 });
 
+// Public: Submit a contact inquiry (from the "تواصل" page form)
+app.post('/api/inquiries', async (req, res) => {
+  const clientIp = ((req.headers['x-forwarded-for'] as string)?.split(',')[0].trim()) || req.socket.remoteAddress || 'unknown';
+
+  if (isInquiryRateLimited(clientIp)) {
+    return res.status(429).json({
+      success: false,
+      error: 'تم تجاوز الحد الأقصى لإرسال الاستفسارات مؤقتاً، يرجى الانتظار بضع دقائق قبل المحاولة مجدداً.'
+    });
+  }
+
+  const { name, phone, message } = req.body;
+
+  if (!name || !phone || !message) {
+    return res.status(400).json({
+      success: false,
+      error: 'الاسم ورقم الجوال ونص الاستفسار كلها حقول مطلوبة.'
+    });
+  }
+
+  const cleanName = sanitizeString(name, 80);
+  const cleanPhone = sanitizeString(phone, 30);
+  const cleanMessage = sanitizeString(message, 1000);
+
+  if (!cleanName || cleanName.length < 2) {
+    return res.status(400).json({ success: false, error: 'يرجى إدخال اسم صحيح لا يقل عن حرفين' });
+  }
+  if (!cleanPhone || cleanPhone.length < 7) {
+    return res.status(400).json({ success: false, error: 'يرجى إدخال رقم جوال أو واتساب صحيح للتواصل' });
+  }
+  if (!cleanMessage || cleanMessage.length < 3) {
+    return res.status(400).json({ success: false, error: 'يرجى كتابة نص الاستفسار أو الرسالة' });
+  }
+
+  const data = getStoreData();
+
+  const newInquiry: Inquiry = {
+    id: `INQ-${Math.floor(1000 + Math.random() * 9000)}`,
+    createdAt: Date.now(),
+    name: cleanName,
+    phone: cleanPhone,
+    message: cleanMessage,
+    status: 'unread'
+  };
+
+  data.inquiries.unshift(newInquiry);
+  await saveStoreData(data);
+
+  res.status(201).json({
+    success: true,
+    message: 'تم استلام رسالتك بنجاح، وسنتواصل معك في أقرب وقت ممكن.',
+    inquiry: newInquiry
+  });
+});
+
 // --- ADMIN SECURE ROUTES ---
 
 // Admin Login with advanced brute force attack protection & timing-safe checks
@@ -690,6 +768,49 @@ app.delete('/api/admin/orders/:id', requireAdminAuth, async (req, res) => {
 
   await saveStoreData(data);
   res.json({ success: true, message: 'تم حذف الطلب بنجاح من السجل' });
+});
+
+// Admin: List all contact inquiries
+app.get('/api/admin/inquiries', requireAdminAuth, (req, res) => {
+  const data = getStoreData();
+  res.json({ success: true, inquiries: data.inquiries });
+});
+
+// Admin: Update inquiry status (mark as read/unread)
+app.put('/api/admin/inquiries/:id', requireAdminAuth, async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (status !== 'read' && status !== 'unread') {
+    return res.status(400).json({ success: false, error: 'حالة الاستفسار غير صالحة' });
+  }
+
+  const data = getStoreData();
+  const inquiryIndex = data.inquiries.findIndex(i => i.id === id);
+
+  if (inquiryIndex === -1) {
+    return res.status(404).json({ success: false, error: 'الاستفسار غير موجود' });
+  }
+
+  data.inquiries[inquiryIndex].status = status;
+  await saveStoreData(data);
+  res.json({ success: true, inquiry: data.inquiries[inquiryIndex] });
+});
+
+// Admin: Delete inquiry
+app.delete('/api/admin/inquiries/:id', requireAdminAuth, async (req, res) => {
+  const { id } = req.params;
+  const data = getStoreData();
+
+  const initialLength = data.inquiries.length;
+  data.inquiries = data.inquiries.filter(i => i.id !== id);
+
+  if (data.inquiries.length === initialLength) {
+    return res.status(404).json({ success: false, error: 'الاستفسار غير موجود' });
+  }
+
+  await saveStoreData(data);
+  res.json({ success: true, message: 'تم حذف الاستفسار بنجاح من السجل' });
 });
 
 // Admin: Add new product

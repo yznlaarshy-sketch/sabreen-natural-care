@@ -1,4 +1,4 @@
-import { Product, Order, StoreSettings } from '../types';
+import { Product, Order, StoreSettings, Inquiry } from '../types';
 
 export const API_BASE = '/api';
 
@@ -37,6 +37,53 @@ export async function submitOrder(orderData: {
     body: JSON.stringify(orderData)
   });
   return res.json();
+}
+
+export async function submitInquiry(inquiryData: {
+  name: string;
+  phone: string;
+  message: string;
+}): Promise<{ success: boolean; message?: string; error?: string; inquiry?: Inquiry }> {
+  const res = await fetch(`${API_BASE}/inquiries`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(inquiryData)
+  });
+  return res.json();
+}
+
+export async function fetchAdminInquiries(token: string): Promise<Inquiry[]> {
+  const res = await fetch(`${API_BASE}/admin/inquiries`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await res.json();
+  return data.inquiries || [];
+}
+
+export async function updateInquiryStatus(
+  token: string,
+  id: string,
+  status: Inquiry['status']
+): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/admin/inquiries/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ status })
+  });
+  const data = await res.json();
+  return data.success;
+}
+
+export async function deleteInquiry(token: string, id: string): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/admin/inquiries/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await res.json();
+  return data.success;
 }
 
 export async function adminLogin(username: string, password: string): Promise<{
