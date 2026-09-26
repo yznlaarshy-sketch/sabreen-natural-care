@@ -6,7 +6,7 @@ import {
   DollarSign, ShieldAlert, ArrowLeft, RefreshCw, Layers, Lock, ShieldCheck,
   Facebook, Instagram, MailQuestion, MailOpen
 } from 'lucide-react';
-import { Product, Order, StoreSettings, OrderStatus, Inquiry } from '../types';
+import { Product, Order, StoreSettings, OrderStatus, Inquiry, PromoVideo } from '../types';
 import {
   fetchAdminOrders,
   fetchAdminProducts,
@@ -19,7 +19,8 @@ import {
   changeAdminCredentials,
   fetchAdminInquiries,
   updateInquiryStatus,
-  deleteInquiry
+  deleteInquiry,
+  uploadPromoVideo
 } from '../services/api';
 
 interface AdminDashboardProps {
@@ -123,6 +124,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         orderHours: initialSettings.orderHours || 'في أي وقت طوال اليوم (24/7 على مدار الساعة)',
         deliveryAreas: initialSettings.deliveryAreas || 'مدينة غزة، المنطقة الوسطى (دير البلح، النصيرات، الزوايدة، البريج، المغازي)، خانيونس، ورفح والمواصي',
       });
+    }
+  }, [initialSettings]);
+
+  // Promo Video Form (independent of products — a general site-wide ad video)
+  const [promoVideoForm, setPromoVideoForm] = useState<PromoVideo>({
+    enabled: initialSettings?.promoVideo?.enabled || false,
+    sourceType: initialSettings?.promoVideo?.sourceType || 'link',
+    url: initialSettings?.promoVideo?.url || '',
+    badgeText: initialSettings?.promoVideo?.badgeText || '',
+    title: initialSettings?.promoVideo?.title || '',
+  });
+  const [promoVideoFile, setPromoVideoFile] = useState<{ base64: string; name: string; mimeType: string } | null>(null);
+  const [promoVideoSaving, setPromoVideoSaving] = useState(false);
+
+  useEffect(() => {
+    if (initialSettings?.promoVideo) {
+      setPromoVideoForm(initialSettings.promoVideo);
     }
   }, [initialSettings]);
 
@@ -470,6 +488,90 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       onSettingsUpdated(updated);
     } else {
       showNotification('فشل حفظ الإعدادات', 'error');
+    }
+  };
+
+  // --- PROMO VIDEO HANDLERS ---
+  const handlePromoVideoFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('video/')) {
+      showNotification('يرجى اختيار ملف فيديو صالح', 'error');
+      return;
+    }
+
+    const MAX_BYTES = 35 * 1024 * 1024;
+    if (file.size > MAX_BYTES) {
+      showNotification('حجم الفيديو أكبر من 35 ميغابايت، يرجى ضغطه أو استخدام خيار الرابط بدلاً من الرفع', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setPromoVideoFile({
+        base64: reader.result as string,
+        name: file.name,
+        mimeType: file.type,
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSavePromoVideo = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (promoVideoForm.enabled) {
+      if (promoVideoForm.sourceType === 'upload' && !promoVideoFile && !promoVideoForm.url) {
+        showNotification('يرجى اختيار ملف فيديو للرفع', 'error');
+        return;
+      }
+      if (promoVideoForm.sourceType === 'link' && !promoVideoForm.url) {
+        showNotification('يرجى إدخال رابط الفيديو', 'error');
+        return;
+      }
+    }
+
+    setPromoVideoSaving(true);
+
+    let finalVideo: PromoVideo = { ...promoVideoForm };
+
+    if (promoVideoForm.sourceType === 'upload' && promoVideoFile) {
+      const uploadResult = await uploadPromoVideo(token, promoVideoFile.base64, promoVideoFile.name, promoVideoFile.mimeType);
+      if (!uploadResult.success || !uploadResult.url) {
+        setPromoVideoSaving(false);
+        showNotification(uploadResult.error || 'تعذر رفع الفيديو', 'error');
+        return;
+      }
+      finalVideo = { ...finalVideo, url: uploadResult.url };
+    }
+
+    const updated = await updateStoreSettings(token, { promoVideo: finalVideo });
+    setPromoVideoSaving(false);
+
+    if (updated) {
+      setPromoVideoFile(null);
+      setPromoVideoForm(finalVideo);
+      showNotification('تم حفظ إعدادات الفيديو الإعلاني بنجاح');
+      onSettingsUpdated(updated);
+    } else {
+      showNotification('فشل حفظ إعدادات الفيديو', 'error');
+    }
+  };
+
+  const handleDeletePromoVideo = async () => {
+    setPromoVideoSaving(true);
+    const clearedVideo: PromoVideo = { enabled: false, sourceType: 'link', url: '', badgeText: '', title: '' };
+    const updated = await updateStoreSettings(token, { promoVideo: clearedVideo });
+    setPromoVideoSaving(false);
+
+    if (updated) {
+      setPromoVideoFile(null);
+      setPromoVideoForm(clearedVideo);
+      showNotification('تم حذف الفيديو الإعلاني، الموقع رجع لشكله بدون فيديو');
+      onSettingsUpdated(updated);
+    } else {
+      showNotification('فشل حذف الفيديو', 'error');
     }
   };
 
@@ -1587,6 +1689,142 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     className="px-8 py-3 rounded-xl bg-gradient-to-r from-[#D4AF37] to-[#B38938] hover:from-[#E2BE45] hover:to-[#C59B42] text-[#0E0E10] font-bold text-xs sm:text-sm shadow-lg transition-all"
                   >
                     {loading ? 'جاري الحفظ...' : 'حفظ التعديلات'}
+                  </button>
+                </div>
+
+              </form>
+            </div>
+
+            {/* Promo Video Ad — independent of products, shown on every homepage visit */}
+            <div className="bg-[#17171A] p-6 rounded-3xl border border-[#27272D] shadow-xl" dir="rtl">
+              <h2 className="text-xl font-bold text-[#FAF7F2] font-serif-luxury mb-1">
+                الفيديو الإعلاني بالصفحة الرئيسية
+              </h2>
+              <p className="text-xs text-[#A8A295] mb-6">
+                فيديو عام يظهر لكل زائر يفتح الموقع (غير مرتبط بمنتج معين)، يشتغل تلقائياً بدون صوت مع زر لتشغيل الصوت يدوياً — يعمل على الآيفون والأندرويد وأجهزة الكمبيوتر.
+              </p>
+
+              <form onSubmit={handleSavePromoVideo} className="space-y-5 text-right">
+
+                {/* Enable toggle */}
+                <label className="flex items-center justify-between p-4 rounded-xl bg-[#1F1F24] border border-[#2B2B32] cursor-pointer">
+                  <div>
+                    <span className="text-sm font-bold text-[#FAF7F2] block">تفعيل الفيديو الإعلاني</span>
+                    <span className="text-[11px] text-[#A8A295]">عند الإيقاف، لن يظهر أي فيديو للزوار</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={promoVideoForm.enabled}
+                    onChange={(e) => setPromoVideoForm({ ...promoVideoForm, enabled: e.target.checked })}
+                    className="w-5 h-5 accent-[#D4AF37]"
+                  />
+                </label>
+
+                {/* Source type selector */}
+                <div>
+                  <label className="text-xs font-bold text-[#D4AF37] block mb-2">طريقة إضافة الفيديو</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPromoVideoForm({ ...promoVideoForm, sourceType: 'upload', url: '' })}
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                        promoVideoForm.sourceType === 'upload'
+                          ? 'bg-[#D4AF37] text-[#0E0E10]'
+                          : 'bg-[#1F1F24] text-[#FAF7F2]/70 border border-[#2B2B32]'
+                      }`}
+                    >
+                      رفع ملف فيديو من الجهاز
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setPromoVideoForm({ ...promoVideoForm, sourceType: 'link' }); setPromoVideoFile(null); }}
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                        promoVideoForm.sourceType === 'link'
+                          ? 'bg-[#D4AF37] text-[#0E0E10]'
+                          : 'bg-[#1F1F24] text-[#FAF7F2]/70 border border-[#2B2B32]'
+                      }`}
+                    >
+                      رابط فيديو (يوتيوب أو رابط مباشر)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Upload input */}
+                {promoVideoForm.sourceType === 'upload' && (
+                  <div>
+                    <label className="text-xs font-bold text-[#D4AF37] block mb-2">ملف الفيديو (بحد أقصى 35 ميغابايت)</label>
+                    <input
+                      type="file"
+                      accept="video/*"
+                      onChange={handlePromoVideoFileSelect}
+                      className="w-full text-xs text-[#FAF7F2] file:ml-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-[#D4AF37] file:text-[#0E0E10] file:font-bold file:text-xs bg-[#141417] border border-[#2C2C32] rounded-xl px-3 py-2.5"
+                    />
+                    {promoVideoFile && (
+                      <p className="text-[11px] text-emerald-400 mt-2">تم اختيار: {promoVideoFile.name}</p>
+                    )}
+                    {!promoVideoFile && promoVideoForm.url && (
+                      <p className="text-[11px] text-[#A8A295] mt-2">الفيديو الحالي محفوظ، اختاري ملفاً جديداً لاستبداله</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Link input */}
+                {promoVideoForm.sourceType === 'link' && (
+                  <div>
+                    <label className="text-xs font-bold text-[#D4AF37] block mb-2">رابط الفيديو</label>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      placeholder="https://www.youtube.com/watch?v=... أو رابط فيديو مباشر (.mp4)"
+                      value={promoVideoForm.url}
+                      onChange={(e) => setPromoVideoForm({ ...promoVideoForm, url: e.target.value })}
+                      className="w-full bg-[#141417] border border-[#2C2C32] rounded-xl px-3 py-2.5 text-[#FAF7F2] focus:border-[#D4AF37] focus:outline-none text-left"
+                    />
+                  </div>
+                )}
+
+                {/* Optional overlay text */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-[#D4AF37] block mb-2">نص الشارة (اختياري)</label>
+                    <input
+                      type="text"
+                      placeholder="مثال: جديد"
+                      value={promoVideoForm.badgeText || ''}
+                      onChange={(e) => setPromoVideoForm({ ...promoVideoForm, badgeText: e.target.value })}
+                      className="w-full bg-[#141417] border border-[#2C2C32] rounded-xl px-3 py-2.5 text-[#FAF7F2] focus:border-[#D4AF37] focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-[#D4AF37] block mb-2">عنوان يظهر فوق الفيديو (اختياري)</label>
+                    <input
+                      type="text"
+                      placeholder="مثال: جمال طبيعي لبشرة أكثر إشراقاً"
+                      value={promoVideoForm.title || ''}
+                      onChange={(e) => setPromoVideoForm({ ...promoVideoForm, title: e.target.value })}
+                      className="w-full bg-[#141417] border border-[#2C2C32] rounded-xl px-3 py-2.5 text-[#FAF7F2] focus:border-[#D4AF37] focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  {promoVideoForm.url && (
+                    <button
+                      type="button"
+                      onClick={handleDeletePromoVideo}
+                      disabled={promoVideoSaving}
+                      className="px-6 py-3 rounded-xl bg-rose-950/40 hover:bg-rose-900 border border-rose-800/60 text-rose-300 hover:text-white font-bold text-xs sm:text-sm transition-all disabled:opacity-60 flex items-center gap-1.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>حذف الفيديو نهائياً</span>
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={promoVideoSaving}
+                    className="px-8 py-3 rounded-xl bg-gradient-to-r from-[#D4AF37] to-[#B38938] hover:from-[#E2BE45] hover:to-[#C59B42] text-[#0E0E10] font-bold text-xs sm:text-sm shadow-lg transition-all disabled:opacity-60"
+                  >
+                    {promoVideoSaving ? 'جاري الحفظ...' : 'حفظ الفيديو الإعلاني'}
                   </button>
                 </div>
 

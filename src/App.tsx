@@ -7,6 +7,7 @@ import { Product, CartItem, StoreSettings, Order } from './types';
 import { fetchProducts, fetchSettings, verifyAdminToken, fetchCurrentAdminUser } from './services/api';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
+import { PromoVideoBanner } from './components/PromoVideoBanner';
 import { ProductCard } from './components/ProductCard';
 import { ProductDetailsModal } from './components/ProductDetailsModal';
 import { CartDrawer } from './components/CartDrawer';
@@ -442,6 +443,11 @@ export default function App() {
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
               />
+            )}
+
+            {/* Promo video ad — admin-managed, independent of products, shows on every homepage visit */}
+            {currentView === 'store' && !searchQuery && (
+              <PromoVideoBanner video={settings?.promoVideo} />
             )}
 
             <div id="products-section" className="container mx-auto px-4 py-10 max-w-7xl">

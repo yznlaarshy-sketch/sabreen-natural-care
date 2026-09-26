@@ -62,6 +62,15 @@ export interface StoreSettings {
   location: string;
   orderHours?: string;
   deliveryAreas?: string;
+  promoVideo?: PromoVideo;
+}
+
+export interface PromoVideo {
+  enabled: boolean;
+  sourceType: 'upload' | 'link';
+  url: string;
+  badgeText?: string;
+  title?: string;
 }
 
 export interface AdminUser {

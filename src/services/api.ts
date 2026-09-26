@@ -182,6 +182,23 @@ export async function deleteProduct(token: string, id: string): Promise<boolean>
   return data.success;
 }
 
+export async function uploadPromoVideo(
+  token: string,
+  fileBase64: string,
+  fileName: string,
+  mimeType: string
+): Promise<{ success: boolean; url?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/admin/promo-video/upload`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ fileBase64, fileName, mimeType })
+  });
+  return res.json();
+}
+
 export async function updateStoreSettings(token: string, settings: Partial<StoreSettings>): Promise<StoreSettings | null> {
   const res = await fetch(`${API_BASE}/admin/settings`, {
     method: 'PUT',

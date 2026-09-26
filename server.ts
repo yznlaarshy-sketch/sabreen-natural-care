@@ -31,6 +31,48 @@ async function supabaseRequest(pathname: string, options: RequestInit = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+// --- Supabase Storage helpers (used for uploaded promo video files) ---
+// Storage keeps large binary files out of the store_state JSON blob, which
+// must stay small since it is read/written on nearly every request.
+const PROMO_MEDIA_BUCKET = 'promo-media';
+let promoMediaBucketReady = false;
+
+async function ensurePromoMediaBucket(): Promise<void> {
+  if (promoMediaBucketReady) return;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY!,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY!}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ id: PROMO_MEDIA_BUCKET, name: PROMO_MEDIA_BUCKET, public: true }),
+  });
+  // A 400/409 here just means the bucket already exists from a previous run — that's fine.
+  if (res.ok || res.status === 400 || res.status === 409) {
+    promoMediaBucketReady = true;
+    return;
+  }
+  throw new Error(`Failed to prepare storage bucket: ${res.status} ${await res.text()}`);
+}
+
+async function uploadPromoVideoFile(fileName: string, contentType: string, fileBuffer: Buffer): Promise<string> {
+  await ensurePromoMediaBucket();
+  const safeName = `${Date.now()}-${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${PROMO_MEDIA_BUCKET}/${safeName}`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY!,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY!}`,
+      'Content-Type': contentType,
+      'x-upsert': 'true',
+    },
+    body: fileBuffer,
+  });
+  if (!res.ok) throw new Error(`Storage upload failed: ${res.status} ${await res.text()}`);
+  return `${SUPABASE_URL}/storage/v1/object/public/${PROMO_MEDIA_BUCKET}/${safeName}`;
+}
+
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
@@ -38,8 +80,10 @@ const PORT = Number(process.env.PORT || 3000);
 app.set('trust proxy', 1);
 
 // Enable JSON & urlencoded parser
-app.use(express.json({ limit: '25mb' }));
-app.use(express.urlencoded({ limit: '25mb', extended: true }));
+// Limit raised from 25mb to accommodate base64-encoded promo video uploads
+// (admin-only, authenticated route) alongside the existing receipt images.
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Strict Security Headers
 app.use((req, res, next) => {
@@ -890,6 +934,42 @@ app.put('/api/admin/settings', requireAdminAuth, async (req, res) => {
   };
   await saveStoreData(data);
   res.json({ success: true, settings: data.settings });
+});
+
+// Admin: Upload a promo video file (stored in Supabase Storage, not the JSON
+// state, since videos are too large to keep in store_state). Returns a
+// public URL; the admin still needs to call PUT /api/admin/settings with
+// { promoVideo: { enabled, sourceType: 'upload', url } } to activate it.
+app.post('/api/admin/promo-video/upload', requireAdminAuth, async (req, res) => {
+  const { fileBase64, fileName, mimeType } = req.body;
+
+  if (!fileBase64 || !fileName || !mimeType) {
+    return res.status(400).json({ success: false, error: 'بيانات الملف ناقصة (الملف، الاسم، أو النوع)' });
+  }
+
+  if (!mimeType.startsWith('video/')) {
+    return res.status(400).json({ success: false, error: 'الملف يجب أن يكون فيديو صالح' });
+  }
+
+  try {
+    const base64Data = fileBase64.includes(',') ? fileBase64.split(',')[1] : fileBase64;
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // ~35MB file limit (comfortably under the 50mb JSON body cap after base64 overhead)
+    const MAX_VIDEO_BYTES = 35 * 1024 * 1024;
+    if (buffer.length > MAX_VIDEO_BYTES) {
+      return res.status(413).json({
+        success: false,
+        error: 'حجم الفيديو أكبر من الحد المسموح (35 ميغابايت). يرجى ضغط الفيديو أو استخدام خيار الرابط بدلاً من الرفع المباشر.'
+      });
+    }
+
+    const publicUrl = await uploadPromoVideoFile(fileName, mimeType, buffer);
+    res.json({ success: true, url: publicUrl });
+  } catch (err) {
+    console.error('Promo video upload error:', err);
+    res.status(500).json({ success: false, error: 'تعذر رفع الفيديو، يرجى المحاولة مرة أخرى' });
+  }
 });
 
 // Admin: Change credentials (username and/or password) with high-strength validation
