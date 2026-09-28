@@ -4,7 +4,7 @@ import {
   ShoppingBag, ShieldCheck, Heart, Leaf, Package, AlertCircle
 } from 'lucide-react';
 import { Product, CartItem, StoreSettings, Order } from './types';
-import { fetchProducts, fetchSettings, verifyAdminToken, fetchCurrentAdminUser } from './services/api';
+import { fetchProducts, fetchSettings, verifyAdminToken, fetchCurrentAdminUser, trackVisit } from './services/api';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
 import { PromoVideoBanner } from './components/PromoVideoBanner';
@@ -145,6 +145,19 @@ export default function App() {
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  // Log this visit once per browser session (used by the admin's visitors/block panel)
+  useEffect(() => {
+    try {
+      if (!sessionStorage.getItem('sb_visit_tracked')) {
+        sessionStorage.setItem('sb_visit_tracked', '1');
+        trackVisit();
+      }
+    } catch {
+      // If sessionStorage is unavailable (e.g. private browsing), just skip tracking silently
+      trackVisit();
+    }
   }, []);
 
   // Listen to hash / URL changes (e.g., #admin or /admin) and secret keyboard shortcut (Ctrl+Shift+A)

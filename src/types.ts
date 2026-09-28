@@ -88,6 +88,27 @@ export interface Inquiry {
   status: 'unread' | 'read';
 }
 
+export interface Review {
+  id: string;
+  productId: string;
+  productName: string;
+  customerName: string;
+  rating: number; // 1-5
+  comment: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: number;
+}
+
+export interface Visitor {
+  ip: string;
+  device: string; // "آيفون" | "أندرويد" | "كمبيوتر" | "جهاز غير معروف"
+  browser: string;
+  firstSeen: number;
+  lastSeen: number;
+  visitCount: number;
+  blocked: boolean;
+}
+
 export interface ApiResponse<T = any> {
   success: boolean;
   data?: T;

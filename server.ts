@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import type { Product, Order, StoreSettings, Inquiry } from './src/types';
+import type { Product, Order, StoreSettings, Inquiry, Review, Visitor } from './src/types';
 
 // Persistent store state is kept in Supabase.
 // IMPORTANT: SUPABASE_SERVICE_ROLE_KEY is a server-only secret. Never expose it in the browser.
@@ -108,6 +108,35 @@ app.use((req, res, next) => {
   next();
 });
 
+// Extracts the real client IP, honoring the reverse proxy (Render/Nginx) as configured above
+function getClientIp(req: Request): string {
+  return ((req.headers['x-forwarded-for'] as string)?.split(',')[0].trim()) || req.socket.remoteAddress || 'unknown';
+}
+
+// Blocks visitors the admin has marked as blocked (by IP). Admin routes are
+// exempt so a mistaken self-block can never lock the owner out of the dashboard.
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/admin')) return next();
+
+  let data: StoreData | null = null;
+  try {
+    data = getStoreData();
+  } catch {
+    return next(); // Store not initialized yet (startup race) — fail open.
+  }
+
+  const ip = getClientIp(req);
+  const visitor = data.visitors.find(v => v.ip === ip);
+  if (visitor?.blocked) {
+    if (req.path.startsWith('/api/')) {
+      return res.status(403).json({ success: false, error: 'تم حظر الوصول لهذا الموقع من هذا الجهاز.' });
+    }
+    return res.status(403).send('<html dir="rtl"><body style="font-family:sans-serif;text-align:center;padding:60px 20px;"><h2>تم حظر الوصول</h2><p>لا يمكنك الوصول لهذا الموقع من هذا الجهاز.</p></body></html>');
+  }
+
+  next();
+});
+
 // Helper for string sanitization and XSS prevention
 function sanitizeString(str: any, maxLength = 300): string {
   if (typeof str !== 'string') return '';
@@ -143,6 +172,8 @@ function createInitialStoreData(): StoreData {
       const seeded = JSON.parse(fs.readFileSync(seedFile, 'utf-8')) as StoreData;
       if (seeded && Array.isArray(seeded.products) && seeded.settings && seeded.admin) {
         if (!Array.isArray(seeded.inquiries)) seeded.inquiries = [];
+        if (!Array.isArray(seeded.reviews)) seeded.reviews = [];
+        if (!Array.isArray(seeded.visitors)) seeded.visitors = [];
         return seeded;
       }
     }
@@ -154,6 +185,8 @@ function createInitialStoreData(): StoreData {
     products: initialProducts,
     orders: [],
     inquiries: [],
+    reviews: [],
+    visitors: [],
     settings: defaultSettings,
     admin: { username: 'sabreen', salt: defaultAdminSalt, passwordHash: defaultAdminHash }
   };
@@ -177,6 +210,8 @@ async function initializePersistence(): Promise<void> {
     // Backward-compatibility: older store states saved before the inquiries
     // feature existed won't have this field yet.
     if (!Array.isArray(remote.inquiries)) remote.inquiries = [];
+    if (!Array.isArray(remote.reviews)) remote.reviews = [];
+    if (!Array.isArray(remote.visitors)) remote.visitors = [];
     runtimeStoreData = remote;
     console.log('Persistence: Supabase (existing store state loaded)');
     return;
@@ -451,6 +486,8 @@ interface StoreData {
   products: Product[];
   orders: Order[];
   inquiries: Inquiry[];
+  reviews: Review[];
+  visitors: Visitor[];
   settings: StoreSettings;
   admin: {
     username: string;
@@ -671,6 +708,114 @@ app.post('/api/inquiries', async (req, res) => {
   });
 });
 
+// Public: Submit a product review (goes to "pending" until an admin approves it)
+app.post('/api/reviews', async (req, res) => {
+  const { productId, customerName, rating, comment } = req.body;
+
+  if (!productId || !customerName || !rating || !comment) {
+    return res.status(400).json({ success: false, error: 'يرجى تعبئة جميع الحقول (الاسم، التقييم، والتعليق)' });
+  }
+
+  const cleanRating = Number(rating);
+  if (!Number.isInteger(cleanRating) || cleanRating < 1 || cleanRating > 5) {
+    return res.status(400).json({ success: false, error: 'التقييم يجب أن يكون رقماً من 1 إلى 5' });
+  }
+
+  const cleanName = sanitizeString(customerName, 80);
+  const cleanComment = sanitizeString(comment, 500);
+
+  if (!cleanName || cleanName.length < 2) {
+    return res.status(400).json({ success: false, error: 'يرجى إدخال اسم صحيح لا يقل عن حرفين' });
+  }
+  if (!cleanComment || cleanComment.length < 3) {
+    return res.status(400).json({ success: false, error: 'يرجى كتابة تعليق التقييم' });
+  }
+
+  const data = getStoreData();
+  const product = data.products.find(p => p.id === productId);
+  if (!product) {
+    return res.status(404).json({ success: false, error: 'المنتج غير موجود' });
+  }
+
+  const newReview: Review = {
+    id: `REV-${Math.floor(1000 + Math.random() * 9000)}`,
+    productId,
+    productName: product.name,
+    customerName: cleanName,
+    rating: cleanRating,
+    comment: cleanComment,
+    status: 'pending',
+    createdAt: Date.now(),
+  };
+
+  data.reviews.unshift(newReview);
+  await saveStoreData(data);
+
+  res.status(201).json({
+    success: true,
+    message: 'شكراً لتقييمك! سيظهر تعليقك بعد مراجعته من إدارة المتجر.',
+  });
+});
+
+// Public: Fetch approved reviews for one product
+app.get('/api/reviews', (req, res) => {
+  const { productId } = req.query;
+  const data = getStoreData();
+  const approved = data.reviews.filter(r => r.status === 'approved' && (!productId || r.productId === productId));
+  res.json({ success: true, reviews: approved });
+});
+
+// Public: Log a homepage visit (called once per browser session from the frontend).
+// Visitors are deduplicated by IP so this endpoint is safe to call repeatedly
+// without the visitors list growing per page view.
+app.post('/api/track-visit', async (req, res) => {
+  const ip = getClientIp(req);
+  const userAgent = (req.headers['user-agent'] as string) || '';
+
+  let device = 'جهاز غير معروف';
+  if (/iphone|ipad|ipod/i.test(userAgent)) device = 'آيفون / آيباد';
+  else if (/android/i.test(userAgent)) device = 'أندرويد';
+  else if (/windows/i.test(userAgent)) device = 'كمبيوتر (ويندوز)';
+  else if (/macintosh|mac os/i.test(userAgent)) device = 'كمبيوتر (ماك)';
+  else if (/linux/i.test(userAgent)) device = 'كمبيوتر (لينكس)';
+
+  let browser = 'غير معروف';
+  if (/edg\//i.test(userAgent)) browser = 'Edge';
+  else if (/chrome\//i.test(userAgent)) browser = 'Chrome';
+  else if (/safari\//i.test(userAgent) && !/chrome\//i.test(userAgent)) browser = 'Safari';
+  else if (/firefox\//i.test(userAgent)) browser = 'Firefox';
+
+  const data = getStoreData();
+  const existing = data.visitors.find(v => v.ip === ip);
+  const now = Date.now();
+
+  if (existing) {
+    existing.lastSeen = now;
+    existing.visitCount += 1;
+    existing.device = device;
+    existing.browser = browser;
+  } else {
+    data.visitors.unshift({
+      ip,
+      device,
+      browser,
+      firstSeen: now,
+      lastSeen: now,
+      visitCount: 1,
+      blocked: false,
+    });
+    // Cap the list so it can't grow unbounded on a public endpoint
+    const MAX_VISITORS = 500;
+    if (data.visitors.length > MAX_VISITORS) {
+      data.visitors.sort((a, b) => b.lastSeen - a.lastSeen);
+      data.visitors = data.visitors.slice(0, MAX_VISITORS);
+    }
+  }
+
+  await saveStoreData(data);
+  res.json({ success: true });
+});
+
 // --- ADMIN SECURE ROUTES ---
 
 // Admin Login with advanced brute force attack protection & timing-safe checks
@@ -855,6 +1000,89 @@ app.delete('/api/admin/inquiries/:id', requireAdminAuth, async (req, res) => {
 
   await saveStoreData(data);
   res.json({ success: true, message: 'تم حذف الاستفسار بنجاح من السجل' });
+});
+
+// Admin: Fetch all reviews (pending, approved, rejected)
+app.get('/api/admin/reviews', requireAdminAuth, (req, res) => {
+  const data = getStoreData();
+  res.json({ success: true, reviews: data.reviews });
+});
+
+// Admin: Approve / reject a review
+app.put('/api/admin/reviews/:id', requireAdminAuth, async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!['pending', 'approved', 'rejected'].includes(status)) {
+    return res.status(400).json({ success: false, error: 'حالة التقييم غير صالحة' });
+  }
+
+  const data = getStoreData();
+  const reviewIndex = data.reviews.findIndex(r => r.id === id);
+
+  if (reviewIndex === -1) {
+    return res.status(404).json({ success: false, error: 'التقييم غير موجود' });
+  }
+
+  data.reviews[reviewIndex].status = status;
+  await saveStoreData(data);
+  res.json({ success: true, review: data.reviews[reviewIndex] });
+});
+
+// Admin: Delete a review
+app.delete('/api/admin/reviews/:id', requireAdminAuth, async (req, res) => {
+  const { id } = req.params;
+  const data = getStoreData();
+
+  const initialLength = data.reviews.length;
+  data.reviews = data.reviews.filter(r => r.id !== id);
+
+  if (data.reviews.length === initialLength) {
+    return res.status(404).json({ success: false, error: 'التقييم غير موجود' });
+  }
+
+  await saveStoreData(data);
+  res.json({ success: true, message: 'تم حذف التقييم بنجاح' });
+});
+
+// Admin: Fetch all logged visitors (devices that have visited the site)
+app.get('/api/admin/visitors', requireAdminAuth, (req, res) => {
+  const data = getStoreData();
+  const sorted = [...data.visitors].sort((a, b) => b.lastSeen - a.lastSeen);
+  res.json({ success: true, visitors: sorted });
+});
+
+// Admin: Block or unblock a visitor by IP
+app.put('/api/admin/visitors/:ip/block', requireAdminAuth, async (req, res) => {
+  const { ip } = req.params;
+  const { blocked } = req.body;
+
+  const data = getStoreData();
+  const visitor = data.visitors.find(v => v.ip === ip);
+
+  if (!visitor) {
+    return res.status(404).json({ success: false, error: 'الزائر غير موجود' });
+  }
+
+  visitor.blocked = !!blocked;
+  await saveStoreData(data);
+  res.json({ success: true, visitor });
+});
+
+// Admin: Remove a visitor entry from the log entirely
+app.delete('/api/admin/visitors/:ip', requireAdminAuth, async (req, res) => {
+  const { ip } = req.params;
+  const data = getStoreData();
+
+  const initialLength = data.visitors.length;
+  data.visitors = data.visitors.filter(v => v.ip !== ip);
+
+  if (data.visitors.length === initialLength) {
+    return res.status(404).json({ success: false, error: 'الزائر غير موجود' });
+  }
+
+  await saveStoreData(data);
+  res.json({ success: true, message: 'تم حذف سجل الزائر' });
 });
 
 // Admin: Add new product

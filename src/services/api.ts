@@ -1,4 +1,4 @@
-import { Product, Order, StoreSettings, Inquiry } from '../types';
+import { Product, Order, StoreSettings, Inquiry, Review, Visitor } from '../types';
 
 export const API_BASE = '/api';
 
@@ -237,3 +237,98 @@ export async function fetchCurrentAdminUser(): Promise<string> {
   }
 }
 
+// --- Reviews ---
+
+export async function submitReview(reviewData: {
+  productId: string;
+  customerName: string;
+  rating: number;
+  comment: string;
+}): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/reviews`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(reviewData)
+  });
+  return res.json();
+}
+
+export async function fetchProductReviews(productId: string): Promise<Review[]> {
+  const res = await fetch(`${API_BASE}/reviews?productId=${encodeURIComponent(productId)}`);
+  const data = await res.json();
+  return data.reviews || [];
+}
+
+export async function fetchAdminReviews(token: string): Promise<Review[]> {
+  const res = await fetch(`${API_BASE}/admin/reviews`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await res.json();
+  return data.reviews || [];
+}
+
+export async function updateReviewStatus(
+  token: string,
+  id: string,
+  status: Review['status']
+): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/admin/reviews/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ status })
+  });
+  const data = await res.json();
+  return data.success;
+}
+
+export async function deleteReview(token: string, id: string): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/admin/reviews/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await res.json();
+  return data.success;
+}
+
+// --- Visitors ---
+
+export async function trackVisit(): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/track-visit`, { method: 'POST' });
+  } catch {
+    // Silently ignore — visitor tracking should never disrupt the shopping experience
+  }
+}
+
+export async function fetchAdminVisitors(token: string): Promise<Visitor[]> {
+  const res = await fetch(`${API_BASE}/admin/visitors`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await res.json();
+  return data.visitors || [];
+}
+
+export async function setVisitorBlocked(token: string, ip: string, blocked: boolean): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/admin/visitors/${encodeURIComponent(ip)}/block`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ blocked })
+  });
+  const data = await res.json();
+  return data.success;
+}
+
+export async function deleteVisitor(token: string, ip: string): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/admin/visitors/${encodeURIComponent(ip)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await res.json();
+  return data.success;
+}

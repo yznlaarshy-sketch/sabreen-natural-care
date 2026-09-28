@@ -6,7 +6,7 @@ import {
   DollarSign, ShieldAlert, ArrowLeft, RefreshCw, Layers, Lock, ShieldCheck,
   Facebook, Instagram, MailQuestion, MailOpen
 } from 'lucide-react';
-import { Product, Order, StoreSettings, OrderStatus, Inquiry, PromoVideo } from '../types';
+import { Product, Order, StoreSettings, OrderStatus, Inquiry, PromoVideo, Review, Visitor } from '../types';
 import {
   fetchAdminOrders,
   fetchAdminProducts,
@@ -20,7 +20,13 @@ import {
   fetchAdminInquiries,
   updateInquiryStatus,
   deleteInquiry,
-  uploadPromoVideo
+  uploadPromoVideo,
+  fetchAdminReviews,
+  updateReviewStatus,
+  deleteReview,
+  fetchAdminVisitors,
+  setVisitorBlocked,
+  deleteVisitor
 } from '../services/api';
 
 interface AdminDashboardProps {
@@ -44,7 +50,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onProductsUpdated,
   onCredentialsUpdated,
 }) => {
-  const [activeTab, setActiveTab] = useState<'orders' | 'inquiries' | 'products' | 'settings' | 'security'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'inquiries' | 'products' | 'settings' | 'security' | 'reviews' | 'visitors'>('orders');
 
   // Orders State
   const [orders, setOrders] = useState<Order[]>([]);
@@ -57,6 +63,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Inquiries State
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
   const [inquiryFilter, setInquiryFilter] = useState<string>('all');
+
+  // Reviews State
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [reviewFilter, setReviewFilter] = useState<string>('all');
+
+  // Visitors State
+  const [visitors, setVisitors] = useState<Visitor[]>([]);
 
   // Delete Confirmation Modal State (replaces blocked window.confirm)
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -212,10 +225,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  const loadReviews = async () => {
+    try {
+      const data = await fetchAdminReviews(token);
+      setReviews(data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const loadVisitors = async () => {
+    try {
+      const data = await fetchAdminVisitors(token);
+      setVisitors(data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   useEffect(() => {
     loadOrders();
     loadProducts();
     loadInquiries();
+    loadReviews();
+    loadVisitors();
   }, [token]);
 
   const showNotification = (text: string, type: 'success' | 'error' = 'success') => {
@@ -282,6 +315,52 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       loadInquiries();
     } else {
       showNotification('تعذر تحديث حالة الاستفسار', 'error');
+    }
+  };
+
+  // --- REVIEW HANDLERS ---
+  const handleSetReviewStatus = async (review: Review, status: Review['status']) => {
+    const success = await updateReviewStatus(token, review.id, status);
+    if (success) {
+      loadReviews();
+      showNotification(
+        status === 'approved' ? 'تم نشر التقييم على صفحة المنتج' : 'تم رفض التقييم'
+      );
+    } else {
+      showNotification('تعذر تحديث حالة التقييم', 'error');
+    }
+  };
+
+  const handleDeleteReview = async (review: Review) => {
+    if (!window.confirm(`هل أنت متأكدة من حذف تقييم "${review.customerName}" نهائياً؟`)) return;
+    const success = await deleteReview(token, review.id);
+    if (success) {
+      loadReviews();
+      showNotification('تم حذف التقييم');
+    } else {
+      showNotification('تعذر حذف التقييم', 'error');
+    }
+  };
+
+  // --- VISITOR HANDLERS ---
+  const handleToggleVisitorBlock = async (visitor: Visitor) => {
+    const success = await setVisitorBlocked(token, visitor.ip, !visitor.blocked);
+    if (success) {
+      loadVisitors();
+      showNotification(visitor.blocked ? 'تم رفع الحظر عن الجهاز' : 'تم حظر الجهاز من الوصول للموقع');
+    } else {
+      showNotification('تعذر تحديث حالة الحظر', 'error');
+    }
+  };
+
+  const handleDeleteVisitor = async (visitor: Visitor) => {
+    if (!window.confirm(`حذف سجل الزيارة لعنوان "${visitor.ip}" نهائياً؟`)) return;
+    const success = await deleteVisitor(token, visitor.ip);
+    if (success) {
+      loadVisitors();
+      showNotification('تم حذف سجل الزائر');
+    } else {
+      showNotification('تعذر حذف سجل الزائر', 'error');
     }
   };
 
@@ -657,6 +736,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return inq.status === inquiryFilter;
   });
 
+  // Computed Reviews Statistics
+  const pendingReviewsCount = reviews.filter((r) => r.status === 'pending').length;
+  const filteredReviews = reviews.filter((r) => {
+    if (reviewFilter === 'all') return true;
+    return r.status === reviewFilter;
+  });
+
+  // Computed Visitors Statistics
+  const blockedVisitorsCount = visitors.filter((v) => v.blocked).length;
+
   return (
     <div className="fixed inset-0 z-50 bg-[#0E0E10] text-[#FAF7F2] overflow-y-auto flex flex-col font-sans" dir="rtl">
       
@@ -766,6 +855,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <KeyRound className="w-4 h-4" />
               <span>أمان كلمة المرور</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('reviews')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                activeTab === 'reviews'
+                  ? 'bg-gradient-to-r from-[#D4AF37] to-[#B38938] text-[#0E0E10] shadow-md'
+                  : 'text-[#FAF7F2]/75 hover:text-[#FAF7F2] hover:bg-[#25252A]'
+              }`}
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>تقييمات العملاء</span>
+              {pendingReviewsCount > 0 && (
+                <span className="bg-rose-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-full shadow-sm">
+                  {pendingReviewsCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('visitors')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                activeTab === 'visitors'
+                  ? 'bg-gradient-to-r from-[#D4AF37] to-[#B38938] text-[#0E0E10] shadow-md'
+                  : 'text-[#FAF7F2]/75 hover:text-[#FAF7F2] hover:bg-[#25252A]'
+              }`}
+            >
+              <Eye className="w-4 h-4" />
+              <span>الزوار والأجهزة</span>
+              {blockedVisitorsCount > 0 && (
+                <span className="bg-rose-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-full shadow-sm">
+                  {blockedVisitorsCount}
+                </span>
+              )}
+            </button>
           </div>
 
           {/* Action Tools: Refresh + Logout */}
@@ -775,6 +898,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 loadOrders();
                 loadProducts();
                 loadInquiries();
+                loadReviews();
+                loadVisitors();
                 showNotification('تم تحديث البيانات من الخادم');
               }}
               className="p-2 text-[#FAF7F2]/70 hover:text-[#D4AF37] rounded-xl hover:bg-[#202024] transition-colors"
@@ -847,6 +972,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }`}
         >
           الأمان
+        </button>
+        <button
+          onClick={() => setActiveTab('reviews')}
+          className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 ${
+            activeTab === 'reviews' ? 'bg-[#D4AF37] text-[#0E0E10]' : 'text-[#FAF7F2]/70'
+          }`}
+        >
+          <span>التقييمات</span>
+          {pendingReviewsCount > 0 && (
+            <span className="bg-rose-600 text-white text-[10px] px-1 rounded-full">
+              {pendingReviewsCount}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('visitors')}
+          className={`px-3 py-1.5 rounded-xl font-bold ${
+            activeTab === 'visitors' ? 'bg-[#D4AF37] text-[#0E0E10]' : 'text-[#FAF7F2]/70'
+          }`}
+        >
+          الزوار
         </button>
       </div>
 
@@ -1344,6 +1490,249 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         <span>حذف</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+          </div>
+        )}
+
+        {/* ===================== TAB: REVIEWS ===================== */}
+        {activeTab === 'reviews' && (
+          <div className="space-y-6">
+
+            {/* Quick Metrics Banner */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              <div className="p-4 rounded-2xl bg-[#17171A] border border-[#27272D] text-right space-y-1 shadow-sm">
+                <span className="text-[11px] text-[#A8A295] block font-medium">إجمالي التقييمات</span>
+                <span className="text-xl sm:text-2xl font-black text-[#FAF7F2]">{reviews.length}</span>
+                <span className="text-[10px] text-[#D4AF37] block">تقييم مرسل من الزبائن</span>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#17171A] border border-[#27272D] text-right space-y-1 shadow-sm">
+                <span className="text-[11px] text-amber-400 block font-medium">بانتظار المراجعة</span>
+                <span className="text-xl sm:text-2xl font-black text-amber-300">{pendingReviewsCount}</span>
+                <span className="text-[10px] text-[#A8A295] block">يحتاج موافقة أو رفض</span>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#17171A] border border-[#27272D] text-right space-y-1 shadow-sm">
+                <span className="text-[11px] text-emerald-400 block font-medium">منشور بالموقع</span>
+                <span className="text-xl sm:text-2xl font-black text-emerald-300">{reviews.filter(r => r.status === 'approved').length}</span>
+                <span className="text-[10px] text-[#A8A295] block">يظهر لكل الزوار</span>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#17171A] border border-[#27272D] text-right space-y-1 shadow-sm">
+                <span className="text-[11px] text-rose-400 block font-medium">مرفوض</span>
+                <span className="text-xl sm:text-2xl font-black text-rose-300">{reviews.filter(r => r.status === 'rejected').length}</span>
+                <span className="text-[10px] text-[#A8A295] block">غير ظاهر للزوار</span>
+              </div>
+            </div>
+
+            {/* Reviews Header & Filter Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#17171A] p-4 sm:p-5 rounded-2xl border border-[#27272D]">
+              <div>
+                <h2 className="text-lg font-bold text-[#FAF7F2] font-serif-luxury">
+                  تقييمات وتعليقات الزبائن على المنتجات
+                </h2>
+                <p className="text-xs text-[#A8A295] mt-0.5">
+                  التقييم الجديد لا يظهر للزوار إلا بعد موافقتك. راجعي وانشري أو ارفضي كل تقييم.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { id: 'all', label: `الكل (${reviews.length})` },
+                  { id: 'pending', label: `بالانتظار (${pendingReviewsCount})` },
+                  { id: 'approved', label: `منشور (${reviews.filter(r => r.status === 'approved').length})` },
+                  { id: 'rejected', label: `مرفوض (${reviews.filter(r => r.status === 'rejected').length})` },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => setReviewFilter(f.id)}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      reviewFilter === f.id
+                        ? 'bg-[#D4AF37] text-[#0E0E10] shadow-sm'
+                        : 'bg-[#222227] text-[#FAF7F2]/75 hover:text-white hover:bg-[#2A2A30]'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Reviews List */}
+            {filteredReviews.length === 0 ? (
+              <div className="bg-[#17171A] rounded-2xl p-12 text-center border border-[#27272D] text-[#FAF7F2]/50">
+                <Sparkles className="w-12 h-12 mx-auto mb-3 text-[#D4AF37]/40" />
+                <p className="text-sm font-semibold text-[#FAF7F2]/80">لا توجد تقييمات في هذا القسم حالياً</p>
+                <p className="text-xs text-[#A8A295] mt-1">أي تقييم يرسله زبون من صفحة منتج سيظهر هنا تلقائياً</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {filteredReviews.map((review) => (
+                  <div
+                    key={review.id}
+                    className={`bg-[#17171A] rounded-2xl border ${
+                      review.status === 'pending' ? 'border-amber-600/30' : 'border-[#27272D]'
+                    } p-4 sm:p-5 space-y-4 shadow-lg`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#25252A]">
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-sm text-[#D4AF37]">{review.customerName}</span>
+                        <span className="text-xs text-[#A8A295]">{review.productName}</span>
+                        <span className="text-xs text-[#A8A295]">
+                          {new Date(review.createdAt).toLocaleString('ar-EG')}
+                        </span>
+                      </div>
+
+                      <span
+                        className={`text-xs font-bold px-3 py-1 rounded-full border ${
+                          review.status === 'pending'
+                            ? 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+                            : review.status === 'approved'
+                            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                            : 'bg-rose-500/15 text-rose-300 border-rose-500/40'
+                        }`}
+                      >
+                        {review.status === 'pending' ? 'بانتظار المراجعة' : review.status === 'approved' ? 'منشور' : 'مرفوض'}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5 text-xs bg-[#1F1F24] p-3.5 rounded-xl border border-[#2B2B32]">
+                      <div className="flex items-center gap-1 text-[#D4AF37]">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <Sparkles key={i} className={`w-3.5 h-3.5 ${i < review.rating ? 'opacity-100' : 'opacity-20'}`} />
+                        ))}
+                        <span className="text-[#FAF7F2]/70 mr-1">({review.rating}/5)</span>
+                      </div>
+                      <p className="text-[#FAF7F2] leading-relaxed whitespace-pre-wrap">{review.comment}</p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                      {review.status !== 'approved' && (
+                        <button
+                          onClick={() => handleSetReviewStatus(review, 'approved')}
+                          className="px-3 py-2 rounded-xl bg-emerald-950/40 hover:bg-emerald-900 border border-emerald-800/60 text-emerald-300 hover:text-white transition-colors text-xs font-bold flex items-center gap-1.5"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>نشر التقييم</span>
+                        </button>
+                      )}
+                      {review.status !== 'rejected' && (
+                        <button
+                          onClick={() => handleSetReviewStatus(review, 'rejected')}
+                          className="px-3 py-2 rounded-xl bg-[#222227] hover:bg-[#2A2A30] text-[#FAF7F2]/80 hover:text-rose-300 transition-colors text-xs font-bold flex items-center gap-1.5"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          <span>رفض</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDeleteReview(review)}
+                        className="p-2 rounded-xl text-[#A8A295] hover:text-rose-400 hover:bg-rose-950/30 transition-colors text-xs flex items-center gap-1"
+                        title="حذف نهائياً"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>حذف</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+          </div>
+        )}
+
+        {/* ===================== TAB: VISITORS ===================== */}
+        {activeTab === 'visitors' && (
+          <div className="space-y-6">
+
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+              <div className="p-4 rounded-2xl bg-[#17171A] border border-[#27272D] text-right space-y-1 shadow-sm">
+                <span className="text-[11px] text-[#A8A295] block font-medium">إجمالي الأجهزة المسجلة</span>
+                <span className="text-xl sm:text-2xl font-black text-[#FAF7F2]">{visitors.length}</span>
+                <span className="text-[10px] text-[#D4AF37] block">حسب عنوان IP</span>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#17171A] border border-[#27272D] text-right space-y-1 shadow-sm">
+                <span className="text-[11px] text-rose-400 block font-medium">أجهزة محظورة</span>
+                <span className="text-xl sm:text-2xl font-black text-rose-300">{blockedVisitorsCount}</span>
+                <span className="text-[10px] text-[#A8A295] block">لا تستطيع فتح الموقع</span>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#17171A] border border-[#27272D] text-right space-y-1 shadow-sm">
+                <span className="text-[11px] text-emerald-400 block font-medium">إجمالي الزيارات</span>
+                <span className="text-xl sm:text-2xl font-black text-emerald-300">
+                  {visitors.reduce((sum, v) => sum + v.visitCount, 0)}
+                </span>
+                <span className="text-[10px] text-[#A8A295] block">كل زيارة لكل الأجهزة</span>
+              </div>
+            </div>
+
+            <div className="bg-[#17171A] p-4 sm:p-5 rounded-2xl border border-[#27272D]">
+              <h2 className="text-lg font-bold text-[#FAF7F2] font-serif-luxury">
+                الأجهزة التي زارت الموقع
+              </h2>
+              <p className="text-xs text-[#A8A295] mt-0.5">
+                يمكنك حظر أي جهاز مزعج بعنوانه (IP) فقط، بدون التأثير على باقي الزوار. الحظر يعتمد على عنوان الإنترنت وليس الجهاز نفسه، فقد يتغير إذا بدّل الزائر شبكته.
+              </p>
+            </div>
+
+            {visitors.length === 0 ? (
+              <div className="bg-[#17171A] rounded-2xl p-12 text-center border border-[#27272D] text-[#FAF7F2]/50">
+                <Eye className="w-12 h-12 mx-auto mb-3 text-[#D4AF37]/40" />
+                <p className="text-sm font-semibold text-[#FAF7F2]/80">لا توجد زيارات مسجلة حتى الآن</p>
+                <p className="text-xs text-[#A8A295] mt-1">أول زيارة للصفحة الرئيسية ستظهر هنا تلقائياً</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {visitors.map((visitor) => (
+                  <div
+                    key={visitor.ip}
+                    className={`bg-[#17171A] rounded-2xl border ${
+                      visitor.blocked ? 'border-rose-700/50' : 'border-[#27272D]'
+                    } p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4 shadow-lg`}
+                  >
+                    <div className="space-y-1 text-right">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono font-bold text-sm text-[#D4AF37]" dir="ltr">{visitor.ip}</span>
+                        {visitor.blocked && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/40">
+                            محظور
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-[#A8A295] flex flex-wrap gap-x-3 gap-y-1">
+                        <span>{visitor.device}</span>
+                        <span>{visitor.browser}</span>
+                        <span>{visitor.visitCount} زيارة</span>
+                        <span>آخر ظهور: {new Date(visitor.lastSeen).toLocaleString('ar-EG')}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleToggleVisitorBlock(visitor)}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors ${
+                          visitor.blocked
+                            ? 'bg-[#222227] hover:bg-[#2A2A30] text-emerald-300'
+                            : 'bg-rose-950/40 hover:bg-rose-900 border border-rose-800/60 text-rose-300 hover:text-white'
+                        }`}
+                      >
+                        <ShieldAlert className="w-3.5 h-3.5" />
+                        <span>{visitor.blocked ? 'رفع الحظر' : 'حظر الجهاز'}</span>
+                      </button>
+                      <button
+                        onClick={() => handleDeleteVisitor(visitor)}
+                        className="p-2 rounded-xl text-[#A8A295] hover:text-rose-400 hover:bg-rose-950/30 transition-colors"
+                        title="حذف السجل"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
