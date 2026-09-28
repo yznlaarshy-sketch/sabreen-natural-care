@@ -82,8 +82,17 @@ app.set('trust proxy', 1);
 // Enable JSON & urlencoded parser
 // Limit raised from 25mb to accommodate base64-encoded promo video uploads
 // (admin-only, authenticated route) alongside the existing receipt images.
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+// Body size limits: large only where genuinely needed (admin uploads, order receipt image);
+// everything else is capped small so public visitors can't exhaust server memory.
+const bigJson = express.json({ limit: '50mb' });
+const orderJson = express.json({ limit: '16mb' });
+const smallJson = express.json({ limit: '100kb' });
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/admin')) return bigJson(req, res, next);
+  if (req.path === '/api/orders') return orderJson(req, res, next);
+  return smallJson(req, res, next);
+});
+app.use(express.urlencoded({ limit: '100kb', extended: true }));
 
 // Strict Security Headers
 app.use((req, res, next) => {
@@ -110,7 +119,15 @@ app.use((req, res, next) => {
 
 // Extracts the real client IP, honoring the reverse proxy (Render/Nginx) as configured above
 function getClientIp(req: Request): string {
-  return ((req.headers['x-forwarded-for'] as string)?.split(',')[0].trim()) || req.socket.remoteAddress || 'unknown';
+  // Render sits behind Cloudflare, which overwrites CF-Connecting-IP / True-Client-IP with the
+  // real visitor address, so a visitor cannot forge these. X-Forwarded-For is NOT used because
+  // Render only appends to it, letting a client inject a fake first entry.
+  const isIp = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-fA-F:.]{3,45}$/.test(v.trim());
+  const cf = req.headers['cf-connecting-ip'];
+  if (isIp(cf)) return cf.trim();
+  const tci = req.headers['true-client-ip'];
+  if (isIp(tci)) return tci.trim();
+  return req.ip || req.socket.remoteAddress || 'unknown';
 }
 
 // Blocks visitors the admin has marked as blocked (by IP). Admin routes are
@@ -246,6 +263,20 @@ function isOrderRateLimited(ip: string): boolean {
 
 // Inquiry submission anti-spam rate limiting (max 10 inquiries per 15 min per IP)
 const inquiryRateLimits = new Map<string, OrderRateLimit>();
+
+const reviewRateLimits = new Map<string, OrderRateLimit>();
+
+function isReviewRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const limit = reviewRateLimits.get(ip);
+  if (!limit || now > limit.resetTime) {
+    reviewRateLimits.set(ip, { count: 1, resetTime: now + 15 * 60 * 1000 });
+    return false;
+  }
+  if (limit.count >= 5) return true;
+  limit.count += 1;
+  return false;
+}
 
 function isInquiryRateLimited(ip: string): boolean {
   const now = Date.now();
@@ -502,8 +533,6 @@ function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     token = authHeader.split(' ')[1];
-  } else if (req.query?.token && typeof req.query.token === 'string') {
-    token = req.query.token;
   }
 
   if (!token) {
@@ -514,8 +543,8 @@ function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ success: false, error: 'جلسة التسجيل منتهية، يرجى تسجيل الدخول مجدداً' });
   }
 
-  // Session lifespan: 30 days of persistent validity
-  const MAX_SESSION_LIFESPAN_MS = 30 * 24 * 60 * 60 * 1000;
+  // Session lifespan: 7 days
+  const MAX_SESSION_LIFESPAN_MS = 7 * 24 * 60 * 60 * 1000;
   if (Date.now() - session.createdAt > MAX_SESSION_LIFESPAN_MS) {
     activeAdminSessions.delete(token);
     saveSessions();
@@ -559,7 +588,7 @@ app.get('/api/settings', (req, res) => {
 
 // 4. Submit Order (Customer Checkout with anti-spam & sanitization)
 app.post('/api/orders', async (req, res) => {
-  const clientIp = ((req.headers['x-forwarded-for'] as string)?.split(',')[0].trim()) || req.socket.remoteAddress || 'unknown';
+  const clientIp = getClientIp(req);
 
   // Anti-spam rate limiting: max 10 orders per 15 minutes
   if (isOrderRateLimited(clientIp)) {
@@ -580,7 +609,7 @@ app.post('/api/orders', async (req, res) => {
   }
 
   // Image receipt format and size validation
-  if (typeof receiptImage !== 'string' || (!receiptImage.startsWith('data:image/') && !receiptImage.startsWith('http'))) {
+  if (typeof receiptImage !== 'string' || !/^data:image\/(png|jpe?g|webp|gif|heic|heif|bmp);base64,/i.test(receiptImage)) {
     return res.status(400).json({
       success: false,
       error: 'صيغة صورة إثبات التحويل غير صالحة. يرجى رفع صورة بصيغة JPG أو PNG.'
@@ -611,9 +640,13 @@ app.post('/api/orders', async (req, res) => {
 
   // Calculate total with strict validation
   let totalAmount = 0;
+  const unknownItem = items.slice(0, 50).some((item: any) => !data.products.find(p => p.id === item?.productId));
+  if (unknownItem) {
+    return res.status(400).json({ success: false, error: 'أحد المنتجات في السلة غير متوفر، يرجى تحديث الصفحة والمحاولة مجدداً.' });
+  }
   const verifiedItems = items.slice(0, 50).map((item: any) => {
-    const product = data.products.find(p => p.id === item.productId);
-    const itemPrice = product ? product.price : (Number(item.price) || 0);
+    const product = data.products.find(p => p.id === item.productId)!;
+    const itemPrice = product.price;
     const quantity = Math.min(Math.max(1, parseInt(item.quantity, 10) || 1), 99);
     totalAmount += itemPrice * quantity;
     return {
@@ -655,7 +688,7 @@ app.post('/api/orders', async (req, res) => {
 
 // Public: Submit a contact inquiry (from the "تواصل" page form)
 app.post('/api/inquiries', async (req, res) => {
-  const clientIp = ((req.headers['x-forwarded-for'] as string)?.split(',')[0].trim()) || req.socket.remoteAddress || 'unknown';
+  const clientIp = getClientIp(req);
 
   if (isInquiryRateLimited(clientIp)) {
     return res.status(429).json({
@@ -710,6 +743,9 @@ app.post('/api/inquiries', async (req, res) => {
 
 // Public: Submit a product review (goes to "pending" until an admin approves it)
 app.post('/api/reviews', async (req, res) => {
+  if (isReviewRateLimited(getClientIp(req))) {
+    return res.status(429).json({ success: false, error: 'تم تجاوز الحد المسموح لإرسال التقييمات مؤقتاً، يرجى المحاولة لاحقاً.' });
+  }
   const { productId, customerName, rating, comment } = req.body;
 
   if (!productId || !customerName || !rating || !comment) {
@@ -821,7 +857,7 @@ app.post('/api/track-visit', async (req, res) => {
 // Admin Login with advanced brute force attack protection & timing-safe checks
 app.post('/api/admin/login', (req, res) => {
   const { username, password } = req.body;
-  const clientIp = ((req.headers['x-forwarded-for'] as string)?.split(',')[0].trim()) || req.socket.remoteAddress || 'unknown';
+  const clientIp = getClientIp(req);
 
   const attempt = loginAttempts.get(clientIp) || { count: 0, lastAttempt: Date.now() };
 
