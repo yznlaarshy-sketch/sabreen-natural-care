@@ -74,6 +74,7 @@ async function uploadPromoVideoFile(fileName: string, contentType: string, fileB
 }
 
 const app = express();
+app.disable('x-powered-by'); // don't advertise the server framework
 const PORT = Number(process.env.PORT || 3000);
 
 // Trust reverse proxy (e.g. Cloud Run, Nginx) for accurate client IP identification
@@ -101,6 +102,9 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  // Force HTTPS in browsers (Render already serves the site over HTTPS only)
+  res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
 
   const lowerUrl = req.url.toLowerCase();
   if (
