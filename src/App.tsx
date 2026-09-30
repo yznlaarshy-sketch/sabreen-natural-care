@@ -18,6 +18,7 @@ import { AboutPage } from './components/AboutPage';
 import { ContactPage } from './components/ContactPage';
 import { PolicyPage } from './components/PolicyPage';
 import { Footer } from './components/Footer';
+import { HelpAssistant } from './components/HelpAssistant';
 
 export default function App() {
   // Main Data
@@ -688,6 +689,9 @@ export default function App() {
         settings={settings}
         onOrderSuccess={handleOrderSuccess}
       />
+
+      {/* Help Assistant (ready-made answers) - hidden on admin screens */}
+      {!isAdminLoginOpen && !isAdminDashboardOpen && <HelpAssistant settings={settings} />}
 
       {/* Admin Login Modal */}
       <AdminLoginModal
