@@ -5,8 +5,6 @@ import { StoreSettings } from '../types';
 interface NavbarProps {
   cartCount: number;
   onOpenCart: () => void;
-  onOpenAdmin: () => void;
-  isAdminLoggedIn: boolean;
   searchQuery: string;
   onSearchChange: (q: string) => void;
   currentView: string;
@@ -17,8 +15,6 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   cartCount,
   onOpenCart,
-  onOpenAdmin,
-  isAdminLoggedIn,
   searchQuery,
   onSearchChange,
   currentView,

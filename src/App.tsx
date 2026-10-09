@@ -13,12 +13,22 @@ import { ProductDetailsModal } from './components/ProductDetailsModal';
 import { CartDrawer } from './components/CartDrawer';
 import { CheckoutModal } from './components/CheckoutModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
+import { AdminLoginPage } from './components/AdminLoginPage';
 import { AdminDashboard } from './components/AdminDashboard';
 import { AboutPage } from './components/AboutPage';
 import { ContactPage } from './components/ContactPage';
 import { PolicyPage } from './components/PolicyPage';
 import { Footer } from './components/Footer';
 import { HelpAssistant } from './components/HelpAssistant';
+
+const SECRET_ADMIN_PATH = '/sb-owner-7429';
+const isSecretAdminPath = () => {
+  try {
+    return window.location.pathname.toLowerCase().replace(/\/+$/, '') === SECRET_ADMIN_PATH;
+  } catch {
+    return false;
+  }
+};
 
 export default function App() {
   // Main Data
@@ -72,24 +82,13 @@ export default function App() {
   const [selectedProductDetails, setSelectedProductDetails] = useState<Product | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
-  const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(() => {
-    try {
-      const p = window.location.pathname.toLowerCase();
-      const h = window.location.hash.toLowerCase();
-      const hasToken = Boolean(localStorage.getItem('sb_admin_token'));
-      const isAdminRoute = p === '/admin' || p.startsWith('/admin') || h === '#admin' || h === '#/admin';
-      return isAdminRoute && !hasToken;
-    } catch {
-      return false;
-    }
-  });
+  // Admin login modal: opened only via the secret keyboard shortcut (Ctrl/Cmd + Shift + A)
+  const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
+  // Secret full-page admin route (/sb-owner-7429)
+  const [isSecretRoute, setIsSecretRoute] = useState(() => isSecretAdminPath());
   const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState(() => {
     try {
-      const p = window.location.pathname.toLowerCase();
-      const h = window.location.hash.toLowerCase();
-      const hasToken = Boolean(localStorage.getItem('sb_admin_token'));
-      const isAdminRoute = p === '/admin' || p.startsWith('/admin') || h === '#admin' || h === '#/admin';
-      return isAdminRoute && hasToken;
+      return isSecretAdminPath() && Boolean(localStorage.getItem('sb_admin_token'));
     } catch {
       return false;
     }
@@ -161,23 +160,12 @@ export default function App() {
     }
   }, []);
 
-  // Listen to hash / URL changes (e.g., #admin or /admin) and secret keyboard shortcut (Ctrl+Shift+A)
+  // Listen to URL changes (secret admin route) and secret keyboard shortcut (Ctrl+Shift+A)
   useEffect(() => {
     const handleUrlChange = () => {
-      try {
-        const p = window.location.pathname.toLowerCase();
-        const h = window.location.hash.toLowerCase();
-        const isAdminRoute = p === '/admin' || p.startsWith('/admin') || h === '#admin' || h === '#/admin';
-        if (isAdminRoute) {
-          if (adminToken) {
-            setIsAdminDashboardOpen(true);
-            setIsAdminLoginOpen(false);
-          } else {
-            setIsAdminLoginOpen(true);
-          }
-        }
-      } catch (err) {
-        console.error('Error handling admin route:', err);
+      setIsSecretRoute(isSecretAdminPath());
+      if (isSecretAdminPath() && adminToken) {
+        setIsAdminDashboardOpen(true);
       }
     };
 
@@ -194,12 +182,10 @@ export default function App() {
       }
     };
 
-    window.addEventListener('hashchange', handleUrlChange);
     window.addEventListener('popstate', handleUrlChange);
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {
-      window.removeEventListener('hashchange', handleUrlChange);
       window.removeEventListener('popstate', handleUrlChange);
       window.removeEventListener('keydown', handleKeyDown);
     };
@@ -275,7 +261,8 @@ export default function App() {
     } catch {}
     setIsAdminDashboardOpen(false);
     setIsAdminLoginOpen(false);
-    if (window.location.pathname.startsWith('/admin') || window.location.hash.includes('admin')) {
+    if (isSecretAdminPath()) {
+      setIsSecretRoute(false);
       try {
         window.history.pushState(null, '', '/');
       } catch {}
@@ -283,60 +270,16 @@ export default function App() {
     showToast('تم تسجيل الخروج بنجاح');
   };
 
-  const handleAdminAccess = (updateUrl = true) => {
-    if (updateUrl && window.location.pathname !== '/admin') {
-      try {
-        window.history.pushState(null, '', '/admin');
-      } catch {}
-    }
-    if (adminToken) {
-      setIsAdminDashboardOpen(true);
-      setIsAdminLoginOpen(false);
-    } else {
-      setIsAdminLoginOpen(true);
-      setIsAdminDashboardOpen(false);
-    }
-  };
-
   const handleCloseAdmin = () => {
     setIsAdminLoginOpen(false);
     setIsAdminDashboardOpen(false);
-    if (window.location.pathname.startsWith('/admin') || window.location.hash.includes('admin')) {
+    if (isSecretAdminPath()) {
+      setIsSecretRoute(false);
       try {
         window.history.pushState(null, '', '/');
       } catch {}
     }
   };
-
-  // Dedicated Admin URL Link Listener: /admin, /admin/, #admin, ?admin
-  useEffect(() => {
-    const checkUrlAdmin = () => {
-      const pathname = window.location.pathname.toLowerCase();
-      const hash = window.location.hash.toLowerCase();
-      const search = new URLSearchParams(window.location.search);
-
-      const isAdminUrl =
-        pathname === '/admin' ||
-        pathname === '/admin/' ||
-        pathname.startsWith('/admin') ||
-        hash === '#admin' ||
-        hash === '#/admin' ||
-        search.has('admin');
-
-      if (isAdminUrl) {
-        handleAdminAccess(false);
-      }
-    };
-
-    checkUrlAdmin();
-    window.addEventListener('popstate', checkUrlAdmin);
-    window.addEventListener('hashchange', checkUrlAdmin);
-
-    return () => {
-      window.removeEventListener('popstate', checkUrlAdmin);
-      window.removeEventListener('hashchange', checkUrlAdmin);
-    };
-  }, [adminToken]);
 
   // Categories list dynamically derived from all active products plus default categories
   const categories = useMemo(() => {
@@ -402,6 +345,11 @@ export default function App() {
 
   const totalCartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
+  // Secret full-page admin login (no site behind it)
+  if (isSecretRoute && !adminToken) {
+    return <AdminLoginPage onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-[#FAF8F5] text-[#1A1A1A]" dir="rtl">
       
@@ -417,8 +365,6 @@ export default function App() {
       <Navbar
         cartCount={totalCartCount}
         onOpenCart={() => setIsCartOpen(true)}
-        onOpenAdmin={handleAdminAccess}
-        isAdminLoggedIn={Boolean(adminToken)}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         currentView={currentView}
@@ -659,8 +605,6 @@ export default function App() {
           setCurrentView(view);
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
-        onOpenAdmin={handleAdminAccess}
-        isAdminLoggedIn={Boolean(adminToken)}
       />
 
       {/* Product Details Modal */}

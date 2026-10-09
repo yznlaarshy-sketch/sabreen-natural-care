@@ -5,11 +5,9 @@ import { StoreSettings } from '../types';
 interface FooterProps {
   settings: StoreSettings | null;
   onNavigate: (view: string) => void;
-  onOpenAdmin: () => void;
-  isAdminLoggedIn?: boolean;
 }
 
-export const Footer: React.FC<FooterProps> = ({ settings, onNavigate, onOpenAdmin, isAdminLoggedIn }) => {
+export const Footer: React.FC<FooterProps> = ({ settings, onNavigate }) => {
   const cleanPhone = settings?.whatsappNumber?.replace(/[^0-9]/g, '') || '';
 
   return (
@@ -180,13 +178,7 @@ export const Footer: React.FC<FooterProps> = ({ settings, onNavigate, onOpenAdmi
         <div className="container mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <span className="cursor-default select-none">
             جميع الحقوق محفوظة{' '}
-            <button
-              type="button"
-              onClick={onOpenAdmin}
-              className="inline text-inherit cursor-default focus:outline-none p-0 bg-transparent border-0 select-none hover:text-inherit active:text-inherit"
-            >
-              ©
-            </button>{' '}
+            ©{' '}
             {new Date().getFullYear()} د. صابرين بشير - منتجات طبيعية للبشرة والتجميل
           </span>
           <span className="flex items-center gap-1 select-none">
