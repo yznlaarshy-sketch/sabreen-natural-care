@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
-import { MessageCircle, Instagram, Facebook, Phone, MapPin, Mail, Clock, Send, Check, Truck, CreditCard, Loader2 } from 'lucide-react';
+import React from 'react';
+import { MessageCircle, Instagram, Facebook, Phone, MapPin, Mail, Clock, Truck, CreditCard } from 'lucide-react';
 import { StoreSettings } from '../types';
-import { submitInquiry } from '../services/api';
 import { ContactChat } from './ContactChat';
 
 interface ContactPageProps {
@@ -9,37 +8,6 @@ interface ContactPageProps {
 }
 
 export const ContactPage: React.FC<ContactPageProps> = ({ settings }) => {
-  const [formName, setFormName] = useState('');
-  const [formPhone, setFormPhone] = useState('');
-  const [formMsg, setFormMsg] = useState('');
-  const [sent, setSent] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [formError, setFormError] = useState('');
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formName || !formPhone || !formMsg || submitting) return;
-
-    setSubmitting(true);
-    setFormError('');
-
-    try {
-      const result = await submitInquiry({ name: formName, phone: formPhone, message: formMsg });
-      if (result.success) {
-        setSent(true);
-        setFormName('');
-        setFormPhone('');
-        setFormMsg('');
-      } else {
-        setFormError(result.error || 'تعذر إرسال رسالتك، يرجى المحاولة مرة أخرى.');
-      }
-    } catch {
-      setFormError('تعذر الاتصال بالخادم، يرجى التحقق من اتصالك بالإنترنت والمحاولة مرة أخرى.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const whatsappClean = settings?.whatsappNumber?.replace(/[^0-9]/g, '') || '';
 
   return (
@@ -62,10 +30,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ settings }) => {
         <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
           
           {/* Contact Details Cards */}
-          <div className="md:col-span-5 space-y-4">
-
-            {/* Live chat with the store admin */}
-            <ContactChat />
+          <div className="md:col-span-5 space-y-4 order-2 md:order-1">
             
             {/* WhatsApp Direct */}
             {settings?.whatsappNumber && (
@@ -184,92 +149,9 @@ export const ContactPage: React.FC<ContactPageProps> = ({ settings }) => {
 
           </div>
 
-          {/* Direct Message Form */}
-          <div className="md:col-span-7 bg-white p-6 sm:p-8 rounded-3xl border border-[#E6E1D8] shadow-md">
-            <h2 className="text-xl font-bold text-[#141416] font-serif-luxury mb-4">
-              أرسلي لنا رسالة أو استفسار
-            </h2>
-
-            {sent ? (
-              <div className="p-6 rounded-2xl bg-[#FAF6EE] border border-[#D4AF37]/40 text-center space-y-3">
-                <div className="w-12 h-12 rounded-full bg-[#D4AF37]/20 text-[#B38938] flex items-center justify-center mx-auto">
-                  <Check className="w-6 h-6" />
-                </div>
-                <h3 className="font-bold text-base text-[#141416]">شكراً لتواصلك معنا</h3>
-                <p className="text-xs text-[#6B6355]">
-                  تم استلام رسالتك بنجاح، وسنقوم بالرد عليك في أقرب وقت عبر الجوال أو الواتساب.
-                </p>
-                <button
-                  onClick={() => setSent(false)}
-                  className="text-xs text-[#B38938] font-bold underline mt-2"
-                >
-                  إرسال رسالة أخرى
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-                <div className="space-y-1">
-                  <label className="font-bold text-[#141416] block">الاسم الكامل *</label>
-                  <input
-                    type="text"
-                    required
-                    value={formName}
-                    onChange={(e) => setFormName(e.target.value)}
-                    placeholder="اسمك الكريم"
-                    className="w-full bg-[#FAF8F5] border border-[#DCD5C9] rounded-xl px-3.5 py-2.5 text-xs text-[#141416] focus:border-[#D4AF37] focus:outline-none"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="font-bold text-[#141416] block">رقم الجوال أو الواتساب *</label>
-                  <input
-                    type="tel"
-                    required
-                    value={formPhone}
-                    onChange={(e) => setFormPhone(e.target.value)}
-                    placeholder="059xxxxxxx"
-                    className="w-full bg-[#FAF8F5] border border-[#DCD5C9] rounded-xl px-3.5 py-2.5 text-xs text-[#141416] focus:border-[#D4AF37] focus:outline-none"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="font-bold text-[#141416] block">رسالتك أو استفسارك *</label>
-                  <textarea
-                    rows={4}
-                    required
-                    value={formMsg}
-                    onChange={(e) => setFormMsg(e.target.value)}
-                    placeholder="اكتبي استفسارك حول المنتجات أو العناية بالبشرة..."
-                    className="w-full bg-[#FAF8F5] border border-[#DCD5C9] rounded-xl p-3 text-xs text-[#141416] focus:border-[#D4AF37] focus:outline-none"
-                  />
-                </div>
-
-                {formError && (
-                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 text-[11px] font-semibold">
-                    {formError}
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full py-3.5 px-4 rounded-xl bg-[#0F0F10] hover:bg-[#D4AF37] text-[#FAF8F5] hover:text-[#0F0F10] font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {submitting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>جاري الإرسال...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4" />
-                      <span>إرسال الرسالة</span>
-                    </>
-                  )}
-                </button>
-              </form>
-            )}
-
+          {/* Live chat with the store admin (replaces the old inquiry/complaint form) */}
+          <div className="md:col-span-7 order-1 md:order-2">
+            <ContactChat alwaysOpen />
           </div>
 
         </div>

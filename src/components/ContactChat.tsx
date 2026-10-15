@@ -25,8 +25,9 @@ const formatTime = (ts: number) =>
   new Date(ts).toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' });
 
 // Live chat card for the contact page: a card in the same style as WhatsApp / Facebook that expands inline.
-export const ContactChat: React.FC = () => {
-  const [open, setOpen] = useState(false);
+export const ContactChat: React.FC<{ alwaysOpen?: boolean }> = ({ alwaysOpen = false }) => {
+  const [openState, setOpen] = useState(false);
+  const open = alwaysOpen || openState;
   const [saved, setSaved] = useState<SavedChat | null>(() => loadSaved());
   const [chat, setChat] = useState<Chat | null>(null);
 
@@ -54,6 +55,7 @@ export const ContactChat: React.FC = () => {
     let cancelled = false;
 
     const poll = async () => {
+      if (document.hidden) return;
       try {
         const res = await fetchCustomerChat(saved.id, saved.token, openRef.current);
         if (cancelled) return;
@@ -133,9 +135,9 @@ export const ContactChat: React.FC = () => {
     <div className="relative rounded-3xl overflow-hidden border border-[#D4AF37]/60 shadow-[0_12px_32px_-12px_rgba(212,175,55,0.55)] bg-gradient-to-br from-[#0F0F10] via-[#1A1712] to-[#2A2214]">
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={() => !alwaysOpen && setOpen(!openState)}
         aria-expanded={open}
-        className="w-full p-5 flex items-center gap-4 text-right group"
+        className={`w-full p-5 flex items-center gap-4 text-right group ${alwaysOpen ? 'cursor-default' : ''}`}
       >
         <div className="relative shrink-0">
           {!open && <span className="absolute inset-0 rounded-2xl bg-[#D4AF37]/40 animate-ping" />}
@@ -167,7 +169,9 @@ export const ContactChat: React.FC = () => {
           )}
         </div>
 
-        <ChevronDown className={`w-5 h-5 text-[#D4AF37] shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+        {!alwaysOpen && (
+          <ChevronDown className={`w-5 h-5 text-[#D4AF37] shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+        )}
       </button>
 
       {open && (
@@ -221,7 +225,7 @@ export const ContactChat: React.FC = () => {
             </form>
           ) : (
             <>
-              <div ref={listRef} className="h-[340px] overflow-y-auto p-4 space-y-2.5">
+              <div ref={listRef} className="h-[380px] overflow-y-auto p-4 space-y-2.5">
                 {!chat && <p className="text-xs text-[#8C827A] text-center py-6">جاري تحميل المحادثة...</p>}
                 {chat?.messages.map((m) => (
                   <div key={m.id} className={`flex ${m.from === 'customer' ? 'justify-start' : 'justify-end'}`}>
