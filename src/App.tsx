@@ -356,7 +356,7 @@ export default function App() {
       
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#0F0F10] text-[#FAF8F5] border border-[#D4AF37]/50 px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5 text-xs font-bold animate-slideUp">
+        <div className="fixed bottom-24 right-5 z-50 bg-[#0F0F10] text-[#FAF8F5] border border-[#D4AF37]/50 px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5 text-xs font-bold animate-slideUp">
           <Sparkles className="w-4 h-4 text-[#D4AF37]" />
           <span>{toastMessage}</span>
         </div>

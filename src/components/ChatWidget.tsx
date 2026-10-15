@@ -132,18 +132,21 @@ export const ChatWidget: React.FC = () => {
           type="button"
           onClick={() => setOpen(true)}
           aria-label="تحدث مع الإدارة"
-          className="fixed bottom-[4.75rem] left-5 z-40 flex items-center gap-2 bg-[#D4AF37] text-[#0F0F10] px-4 py-3 rounded-full shadow-2xl hover:bg-[#E2C55A] transition-colors text-xs font-bold"
+          title="تحدث مع الإدارة"
+          className="fixed bottom-5 right-5 z-40 flex items-center justify-center gap-2 bg-[#D4AF37] text-[#0F0F10] w-12 h-12 sm:w-auto sm:h-auto sm:px-4 sm:py-3 rounded-full shadow-2xl hover:bg-[#E2C55A] transition-colors text-xs font-bold"
         >
-          <MessageSquare className="w-4 h-4" />
-          <span>تحدث مع الإدارة</span>
+          <MessageSquare className="w-5 h-5 sm:w-4 sm:h-4" />
+          <span className="hidden sm:inline">تحدث مع الإدارة</span>
           {unread > 0 && (
-            <span className="bg-rose-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">{unread}</span>
+            <span className="absolute -top-1 -left-1 sm:static bg-rose-600 text-white text-[10px] font-extrabold min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full">
+              {unread}
+            </span>
           )}
         </button>
       )}
 
       {open && (
-        <div className="fixed bottom-4 left-4 right-4 sm:right-auto sm:w-[360px] z-50 bg-[#0F0F10] text-[#FAF8F5] border border-[#D4AF37]/40 rounded-3xl shadow-2xl flex flex-col h-[70vh] max-h-[520px] overflow-hidden">
+        <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-5 sm:w-[360px] z-50 bg-[#0F0F10] text-[#FAF8F5] border border-[#D4AF37]/40 rounded-3xl shadow-2xl flex flex-col h-[70vh] max-h-[520px] overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-[#2A2A2A]">
             <div className="flex items-center gap-2 text-sm font-bold text-[#D4AF37]">
               <MessageSquare className="w-4 h-4" />
