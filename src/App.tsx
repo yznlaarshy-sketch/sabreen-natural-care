@@ -20,7 +20,6 @@ import { ContactPage } from './components/ContactPage';
 import { PolicyPage } from './components/PolicyPage';
 import { Footer } from './components/Footer';
 import { HelpAssistant } from './components/HelpAssistant';
-import { ChatWidget } from './components/ChatWidget';
 
 const SECRET_ADMIN_PATH = '/sb-owner-7429';
 const isSecretAdminPath = () => {
@@ -356,7 +355,7 @@ export default function App() {
       
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-24 right-5 z-50 bg-[#0F0F10] text-[#FAF8F5] border border-[#D4AF37]/50 px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5 text-xs font-bold animate-slideUp">
+        <div className="fixed bottom-6 right-6 z-50 bg-[#0F0F10] text-[#FAF8F5] border border-[#D4AF37]/50 px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5 text-xs font-bold animate-slideUp">
           <Sparkles className="w-4 h-4 text-[#D4AF37]" />
           <span>{toastMessage}</span>
         </div>
@@ -637,7 +636,6 @@ export default function App() {
 
       {/* Help Assistant (ready-made answers) - hidden on admin screens */}
       {!isAdminLoginOpen && !isAdminDashboardOpen && <HelpAssistant settings={settings} />}
-      {!isAdminLoginOpen && !isAdminDashboardOpen && <ChatWidget />}
 
       {/* Admin Login Modal */}
       <AdminLoginModal

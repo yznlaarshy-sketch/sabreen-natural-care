@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MessageSquare, X, Send } from 'lucide-react';
+import { MessageSquare, Send, ChevronDown } from 'lucide-react';
 import { Chat } from '../types';
 import { startChat, fetchCustomerChat, sendCustomerChatMessage } from '../services/api';
 
@@ -24,7 +24,8 @@ const loadSaved = (): SavedChat | null => {
 const formatTime = (ts: number) =>
   new Date(ts).toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' });
 
-export const ChatWidget: React.FC = () => {
+// Live chat card for the contact page: a card in the same style as WhatsApp / Facebook that expands inline.
+export const ContactChat: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [saved, setSaved] = useState<SavedChat | null>(() => loadSaved());
   const [chat, setChat] = useState<Chat | null>(null);
@@ -35,7 +36,7 @@ export const ChatWidget: React.FC = () => {
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
 
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const openRef = useRef(open);
   openRef.current = open;
 
@@ -47,7 +48,7 @@ export const ChatWidget: React.FC = () => {
     setChat(null);
   };
 
-  // Poll the conversation: every 4s while open, every 12s while closed (to show the unread badge).
+  // Poll the conversation: every 4s while open, every 15s while collapsed (to show the unread badge).
   useEffect(() => {
     if (!saved) return;
     let cancelled = false;
@@ -62,20 +63,21 @@ export const ChatWidget: React.FC = () => {
           setChat(res.chat);
         }
       } catch {
-        // Network hiccup: keep the last known state and try again on the next tick.
+        // Network hiccup: keep the last known state and retry on the next tick.
       }
     };
 
     poll();
-    const timer = window.setInterval(poll, open ? 4000 : 12000);
+    const timer = window.setInterval(poll, open ? 4000 : 15000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
   }, [saved, open]);
 
+  // Scroll only the message list (never the whole page) when new messages arrive.
   useEffect(() => {
-    if (open) bottomRef.current?.scrollIntoView({ block: 'end' });
+    if (open && listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [open, chat?.messages.length]);
 
   const handleStart = async (e: React.FormEvent) => {
@@ -92,10 +94,10 @@ export const ChatWidget: React.FC = () => {
         setChat(res.chat);
         setText('');
       } else {
-        setError(res.error || 'تعذر بدء المحادثة، حاول مجدداً.');
+        setError(res.error || 'تعذر بدء المحادثة، حاولي مجدداً.');
       }
     } catch {
-      setError('تعذر الاتصال بالخادم، حاول لاحقاً.');
+      setError('تعذر الاتصال بالخادم، حاولي لاحقاً.');
     } finally {
       setSending(false);
     }
@@ -115,7 +117,7 @@ export const ChatWidget: React.FC = () => {
         setError(res.error || 'تعذر إرسال الرسالة.');
       }
     } catch {
-      setError('تعذر الاتصال بالخادم، حاول لاحقاً.');
+      setError('تعذر الاتصال بالخادم، حاولي لاحقاً.');
     } finally {
       setSending(false);
     }
@@ -123,44 +125,41 @@ export const ChatWidget: React.FC = () => {
 
   const unread = chat?.unreadByCustomer || 0;
   const inputClass =
-    'w-full bg-[#1A1A1C] border border-[#2F2F34] rounded-xl px-3 py-2 text-xs text-[#FAF8F5] placeholder:text-[#8C827A] focus:border-[#D4AF37] focus:outline-none';
+    'w-full bg-white border border-[#DCD5C9] rounded-xl px-3.5 py-2.5 text-xs text-[#141416] placeholder:text-[#9A9183] focus:border-[#D4AF37] focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/30';
 
   return (
-    <div dir="rtl" className="font-sans">
-      {!open && (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          aria-label="تحدث مع الإدارة"
-          title="تحدث مع الإدارة"
-          className="fixed bottom-5 right-5 z-40 flex items-center justify-center gap-2 bg-[#D4AF37] text-[#0F0F10] w-12 h-12 sm:w-auto sm:h-auto sm:px-4 sm:py-3 rounded-full shadow-2xl hover:bg-[#E2C55A] transition-colors text-xs font-bold"
-        >
-          <MessageSquare className="w-5 h-5 sm:w-4 sm:h-4" />
-          <span className="hidden sm:inline">تحدث مع الإدارة</span>
-          {unread > 0 && (
-            <span className="absolute -top-1 -left-1 sm:static bg-rose-600 text-white text-[10px] font-extrabold min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full">
-              {unread}
-            </span>
-          )}
-        </button>
-      )}
+    <div className="rounded-2xl bg-white border border-[#E6E1D8] shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="w-full p-5 flex items-center gap-4 text-right hover:bg-[#FAF6EE] transition-colors group"
+      >
+        <div className="w-12 h-12 rounded-xl bg-[#D4AF37]/15 text-[#B38938] flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+          <MessageSquare className="w-6 h-6" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-bold text-sm text-[#141416] flex items-center gap-2">
+            دردشة مباشرة مع الإدارة
+            {unread > 0 && (
+              <span className="bg-rose-600 text-white text-[10px] font-extrabold min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full">
+                {unread}
+              </span>
+            )}
+          </h3>
+          <p className="text-xs text-[#736B5E] mt-0.5">
+            {saved ? 'لديك محادثة جارية، اضغطي لمتابعتها' : 'اكتبي لنا هنا وسنرد عليك داخل الموقع'}
+          </p>
+        </div>
+        <ChevronDown className={`w-5 h-5 text-[#B38938] shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
 
       {open && (
-        <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-5 sm:w-[360px] z-50 bg-[#0F0F10] text-[#FAF8F5] border border-[#D4AF37]/40 rounded-3xl shadow-2xl flex flex-col h-[70vh] max-h-[520px] overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-[#2A2A2A]">
-            <div className="flex items-center gap-2 text-sm font-bold text-[#D4AF37]">
-              <MessageSquare className="w-4 h-4" />
-              <span>الدردشة مع الإدارة</span>
-            </div>
-            <button type="button" onClick={() => setOpen(false)} aria-label="إغلاق" className="p-1 rounded-full hover:bg-[#2A2A2E]">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
+        <div className="border-t border-[#E6E1D8] bg-[#FDFBF7]">
           {!saved ? (
-            <form onSubmit={handleStart} className="flex-1 overflow-y-auto p-4 space-y-3">
-              <p className="text-xs text-[#C9C2B6] leading-relaxed">
-                اكتب اسمك ورقمك ورسالتك وسنرد عليك هنا في أقرب وقت. احتفظ بهذه النافذة أو ارجع لها لاحقاً لرؤية الرد.
+            <form onSubmit={handleStart} className="p-5 space-y-3">
+              <p className="text-xs text-[#6B6355] leading-relaxed">
+                اكتبي اسمك ورقمك ورسالتك، وسنرد عليك هنا في أقرب وقت. ارجعي لهذه الصفحة لاحقاً لرؤية الرد.
               </p>
               <input className={inputClass} placeholder="الاسم" value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} />
               <input
@@ -174,49 +173,50 @@ export const ChatWidget: React.FC = () => {
               />
               <textarea
                 className={`${inputClass} resize-none`}
-                rows={4}
-                placeholder="اكتب رسالتك..."
+                rows={3}
+                placeholder="اكتبي رسالتك..."
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 required
                 maxLength={600}
               />
-              {error && <p className="text-xs text-rose-400">{error}</p>}
+              {error && <p className="text-xs text-rose-600">{error}</p>}
               <button
                 type="submit"
                 disabled={sending}
-                className="w-full py-2.5 rounded-xl bg-[#D4AF37] text-[#0F0F10] font-bold text-xs disabled:opacity-50"
+                className="w-full py-3 rounded-xl bg-[#0F0F10] hover:bg-[#D4AF37] text-[#FAF8F5] hover:text-[#0F0F10] font-bold text-xs transition-all disabled:opacity-50"
               >
                 {sending ? 'جاري الإرسال...' : 'بدء المحادثة'}
               </button>
             </form>
           ) : (
             <>
-              <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              <div ref={listRef} className="h-[340px] overflow-y-auto p-4 space-y-2">
                 {!chat && <p className="text-xs text-[#8C827A] text-center py-6">جاري تحميل المحادثة...</p>}
                 {chat?.messages.map((m) => (
                   <div key={m.id} className={`flex ${m.from === 'customer' ? 'justify-start' : 'justify-end'}`}>
                     <div
-                      className={`max-w-[80%] rounded-2xl px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap break-words ${
-                        m.from === 'customer' ? 'bg-[#D4AF37] text-[#0F0F10]' : 'bg-[#1F1F23] text-[#FAF8F5] border border-[#2F2F34]'
+                      className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-xs leading-relaxed whitespace-pre-wrap break-words ${
+                        m.from === 'customer'
+                          ? 'bg-[#D4AF37] text-[#0F0F10]'
+                          : 'bg-white text-[#141416] border border-[#E6E1D8]'
                       }`}
                     >
                       {m.text}
-                      <div className={`text-[9px] mt-1 ${m.from === 'customer' ? 'text-[#0F0F10]/60' : 'text-[#8C827A]'}`}>
+                      <div className={`text-[9px] mt-1 ${m.from === 'customer' ? 'text-[#0F0F10]/60' : 'text-[#9A9183]'}`}>
                         {m.from === 'admin' ? 'الإدارة · ' : ''}
                         {formatTime(m.at)}
                       </div>
                     </div>
                   </div>
                 ))}
-                <div ref={bottomRef} />
               </div>
-              <form onSubmit={handleSend} className="p-3 border-t border-[#2A2A2A] space-y-2">
-                {error && <p className="text-[11px] text-rose-400">{error}</p>}
+              <form onSubmit={handleSend} className="p-3 border-t border-[#E6E1D8] space-y-2">
+                {error && <p className="text-[11px] text-rose-600">{error}</p>}
                 <div className="flex items-center gap-2">
                   <input
                     className={inputClass}
-                    placeholder="اكتب رسالة..."
+                    placeholder="اكتبي رسالة..."
                     value={text}
                     onChange={(e) => setText(e.target.value)}
                     maxLength={600}
@@ -225,7 +225,7 @@ export const ChatWidget: React.FC = () => {
                     type="submit"
                     disabled={sending || !text.trim()}
                     aria-label="إرسال"
-                    className="shrink-0 p-2.5 rounded-xl bg-[#D4AF37] text-[#0F0F10] disabled:opacity-50"
+                    className="shrink-0 p-3 rounded-xl bg-[#0F0F10] text-[#D4AF37] hover:bg-[#D4AF37] hover:text-[#0F0F10] transition-colors disabled:opacity-50"
                   >
                     <Send className="w-4 h-4 -scale-x-100" />
                   </button>

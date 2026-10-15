@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { MessageCircle, Instagram, Facebook, Phone, MapPin, Mail, Clock, Send, Check, Truck, CreditCard, Loader2 } from 'lucide-react';
 import { StoreSettings } from '../types';
 import { submitInquiry } from '../services/api';
+import { ContactChat } from './ContactChat';
 
 interface ContactPageProps {
   settings: StoreSettings | null;
@@ -125,6 +126,9 @@ export const ContactPage: React.FC<ContactPageProps> = ({ settings }) => {
                 </div>
               </a>
             )}
+
+            {/* Live chat with the store admin */}
+            <ContactChat />
 
             {/* Location & Hours */}
             <div className="p-5 rounded-2xl bg-white border border-[#E6E1D8] shadow-sm space-y-3.5 text-xs text-[#544E43]">
