@@ -1,4 +1,4 @@
-import { Product, Order, StoreSettings, Inquiry, Review, Visitor } from '../types';
+import { Product, Order, StoreSettings, Inquiry, Review, Visitor, Chat } from '../types';
 
 export const API_BASE = '/api';
 
@@ -331,4 +331,69 @@ export async function deleteVisitor(token: string, ip: string): Promise<boolean>
   });
   const data = await res.json();
   return data.success;
+}
+
+// ---------------- Customer <-> admin chat ----------------
+type ChatResult = { success: boolean; error?: string; chat?: Chat; token?: string };
+
+export async function startChat(input: { name: string; phone: string; message: string }): Promise<ChatResult> {
+  const res = await fetch(`${API_BASE}/chat/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return res.json();
+}
+
+// `status` lets the widget tell "conversation deleted" (404) apart from a network hiccup.
+export async function fetchCustomerChat(
+  id: string,
+  token: string,
+  markRead: boolean
+): Promise<ChatResult & { status: number }> {
+  const res = await fetch(`${API_BASE}/chat/${encodeURIComponent(id)}${markRead ? '?markRead=1' : ''}`, {
+    headers: { 'x-chat-token': token }
+  });
+  const data = await res.json().catch(() => ({ success: false }));
+  return { ...data, status: res.status };
+}
+
+export async function sendCustomerChatMessage(id: string, token: string, message: string): Promise<ChatResult> {
+  const res = await fetch(`${API_BASE}/chat/${encodeURIComponent(id)}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-chat-token': token },
+    body: JSON.stringify({ message })
+  });
+  return res.json();
+}
+
+export async function fetchAdminChats(token: string): Promise<Chat[]> {
+  const res = await fetch(`${API_BASE}/admin/chats`, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await res.json();
+  return data.chats || [];
+}
+
+export async function sendAdminChatMessage(token: string, id: string, message: string): Promise<ChatResult> {
+  const res = await fetch(`${API_BASE}/admin/chats/${encodeURIComponent(id)}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ message })
+  });
+  return res.json();
+}
+
+export async function markAdminChatRead(token: string, id: string): Promise<void> {
+  await fetch(`${API_BASE}/admin/chats/${encodeURIComponent(id)}/read`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function deleteAdminChat(token: string, id: string): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/admin/chats/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await res.json();
+  return Boolean(data.success);
 }

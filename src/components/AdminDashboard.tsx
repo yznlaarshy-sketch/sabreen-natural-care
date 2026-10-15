@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Package, ShoppingBag, Settings, KeyRound, LogOut, Check, X,
   Clock, CheckCircle, XCircle, Trash2, Plus, Edit, Eye, EyeOff,
   Phone, MessageCircle, ExternalLink, AlertTriangle, Sparkles, Image,
   DollarSign, ShieldAlert, ArrowLeft, RefreshCw, Layers, Lock, ShieldCheck,
-  Facebook, Instagram, MailQuestion, MailOpen
+  Facebook, Instagram, MailQuestion, MailOpen, MessageSquare
 } from 'lucide-react';
+import { AdminChatPanel, useAdminChats } from './AdminChatPanel';
 import { Product, Order, StoreSettings, OrderStatus, Inquiry, PromoVideo, Review, Visitor } from '../types';
 import {
   fetchAdminOrders,
@@ -50,7 +51,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onProductsUpdated,
   onCredentialsUpdated,
 }) => {
-  const [activeTab, setActiveTab] = useState<'orders' | 'inquiries' | 'products' | 'settings' | 'security' | 'reviews' | 'visitors'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'inquiries' | 'chats' | 'products' | 'settings' | 'security' | 'reviews' | 'visitors'>('orders');
 
   // Orders State
   const [orders, setOrders] = useState<Order[]>([]);
@@ -63,6 +64,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Inquiries State
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
   const [inquiryFilter, setInquiryFilter] = useState<string>('all');
+
+  // Live chat with customers (polled every few seconds)
+  const { chats, refresh: refreshChats } = useAdminChats(token);
+  const unreadChatsCount = chats.reduce((sum, c) => sum + c.unreadByAdmin, 0);
 
   // Reviews State
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -730,6 +735,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   });
 
   // Computed Inquiries Statistics
+  // Notify the owner when new customer chat messages arrive (toast + browser tab title)
+  const prevUnreadChatsRef = useRef(0);
+  useEffect(() => {
+    if (unreadChatsCount > prevUnreadChatsRef.current && activeTab !== 'chats') {
+      showNotification(`لديك ${unreadChatsCount} رسالة جديدة في الدردشة`, 'success');
+    }
+    prevUnreadChatsRef.current = unreadChatsCount;
+  }, [unreadChatsCount, activeTab]);
+
+  useEffect(() => {
+    const baseTitle = document.title.replace(/^\(\d+\)\s/, '');
+    document.title = unreadChatsCount > 0 ? `(${unreadChatsCount}) ${baseTitle}` : baseTitle;
+    return () => {
+      document.title = baseTitle;
+    };
+  }, [unreadChatsCount]);
+
   const unreadInquiriesCount = inquiries.filter((i) => i.status === 'unread').length;
   const filteredInquiries = inquiries.filter((inq) => {
     if (inquiryFilter === 'all') return true;
@@ -816,6 +838,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {unreadInquiriesCount > 0 && (
                 <span className="bg-rose-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-full shadow-sm">
                   {unreadInquiriesCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('chats')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                activeTab === 'chats'
+                  ? 'bg-gradient-to-r from-[#D4AF37] to-[#B38938] text-[#0E0E10] shadow-md'
+                  : 'text-[#FAF7F2]/75 hover:text-[#FAF7F2] hover:bg-[#25252A]'
+              }`}
+            >
+              <MessageSquare className="w-4 h-4" />
+              <span>الدردشة</span>
+              {unreadChatsCount > 0 && (
+                <span className="bg-rose-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-full shadow-sm">
+                  {unreadChatsCount}
                 </span>
               )}
             </button>
@@ -947,6 +986,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <span className="bg-rose-600 text-white text-[10px] px-1 rounded-full">
               {unreadInquiriesCount}
             </span>
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('chats')}
+          className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 ${
+            activeTab === 'chats' ? 'bg-[#D4AF37] text-[#0E0E10]' : 'text-[#FAF7F2]/70'
+          }`}
+        >
+          <span>الدردشة</span>
+          {unreadChatsCount > 0 && (
+            <span className="bg-rose-600 text-white text-[10px] px-1 rounded-full">{unreadChatsCount}</span>
           )}
         </button>
         <button
@@ -1744,6 +1794,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         )}
 
         {/* ===================== TAB 2: PRODUCTS ===================== */}
+        {activeTab === 'chats' && <AdminChatPanel token={token} chats={chats} refresh={refreshChats} />}
+
         {activeTab === 'products' && (
           <div className="space-y-6">
             

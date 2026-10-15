@@ -20,6 +20,7 @@ import { ContactPage } from './components/ContactPage';
 import { PolicyPage } from './components/PolicyPage';
 import { Footer } from './components/Footer';
 import { HelpAssistant } from './components/HelpAssistant';
+import { ChatWidget } from './components/ChatWidget';
 
 const SECRET_ADMIN_PATH = '/sb-owner-7429';
 const isSecretAdminPath = () => {
@@ -636,6 +637,7 @@ export default function App() {
 
       {/* Help Assistant (ready-made answers) - hidden on admin screens */}
       {!isAdminLoginOpen && !isAdminDashboardOpen && <HelpAssistant settings={settings} />}
+      {!isAdminLoginOpen && !isAdminDashboardOpen && <ChatWidget />}
 
       {/* Admin Login Modal */}
       <AdminLoginModal

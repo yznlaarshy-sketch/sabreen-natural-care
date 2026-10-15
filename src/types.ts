@@ -115,3 +115,21 @@ export interface ApiResponse<T = any> {
   error?: string;
   message?: string;
 }
+
+export interface ChatMessage {
+  id: string;
+  from: 'customer' | 'admin';
+  text: string;
+  at: number;
+}
+
+export interface Chat {
+  id: string;
+  name: string;
+  phone: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: ChatMessage[];
+  unreadByAdmin: number;
+  unreadByCustomer: number;
+}

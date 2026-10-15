@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import type { Product, Order, StoreSettings, Inquiry, Review, Visitor } from './src/types';
+import type { Product, Order, StoreSettings, Inquiry, Review, Visitor, Chat, ChatMessage } from './src/types';
 
 // Persistent store state is kept in Supabase.
 // IMPORTANT: SUPABASE_SERVICE_ROLE_KEY is a server-only secret. Never expose it in the browser.
@@ -195,6 +195,7 @@ function createInitialStoreData(): StoreData {
         if (!Array.isArray(seeded.inquiries)) seeded.inquiries = [];
         if (!Array.isArray(seeded.reviews)) seeded.reviews = [];
         if (!Array.isArray(seeded.visitors)) seeded.visitors = [];
+        if (!Array.isArray(seeded.chats)) seeded.chats = [];
         return seeded;
       }
     }
@@ -208,6 +209,7 @@ function createInitialStoreData(): StoreData {
     inquiries: [],
     reviews: [],
     visitors: [],
+    chats: [],
     settings: defaultSettings,
     admin: { username: 'sabreen', salt: defaultAdminSalt, passwordHash: defaultAdminHash }
   };
@@ -233,6 +235,7 @@ async function initializePersistence(): Promise<void> {
     if (!Array.isArray(remote.inquiries)) remote.inquiries = [];
     if (!Array.isArray(remote.reviews)) remote.reviews = [];
     if (!Array.isArray(remote.visitors)) remote.visitors = [];
+    if (!Array.isArray(remote.chats)) remote.chats = [];
     runtimeStoreData = remote;
     console.log('Persistence: Supabase (existing store state loaded)');
     return;
@@ -517,12 +520,16 @@ const defaultAdminSalt = '7c28cf325f8cea992abf1955785cfbbd538d394789ff25a78927e0
 const defaultAdminPassword = 'Sabreen@2026'; // New default password
 const defaultAdminHash = '7dbf329c7c707d4bcd9b11ce1561737c5a09e47e0ac595b8d2f1c6b539ddca0416d8890c3558797bd1d01f3ad05bddb5e280e5491ebeeba2a7777c23612b9985';
 
+// A customer chat. `token` is a secret only the customer's browser holds; it is never sent to the admin list.
+type StoredChat = Chat & { token: string };
+
 interface StoreData {
   products: Product[];
   orders: Order[];
   inquiries: Inquiry[];
   reviews: Review[];
   visitors: Visitor[];
+  chats: StoredChat[];
   settings: StoreSettings;
   admin: {
     username: string;
@@ -1040,6 +1047,171 @@ app.delete('/api/admin/inquiries/:id', requireAdminAuth, async (req, res) => {
 
   await saveStoreData(data);
   res.json({ success: true, message: 'تم حذف الاستفسار بنجاح من السجل' });
+});
+
+// ---------------------------------------------------------------------------
+// Customer <-> admin live chat (stored inside the store state; kept small by caps)
+// ---------------------------------------------------------------------------
+const CHAT_MAX_CONVERSATIONS = 50;
+const CHAT_MAX_MESSAGES = 100;
+const CHAT_MAX_TEXT = 600;
+
+function makeRateLimiter(max: number, windowMs: number) {
+  const hits = new Map<string, { count: number; resetTime: number }>();
+  return (key: string): boolean => {
+    const now = Date.now();
+    const entry = hits.get(key);
+    if (!entry || now > entry.resetTime) {
+      hits.set(key, { count: 1, resetTime: now + windowMs });
+      return false;
+    }
+    if (entry.count >= max) return true;
+    entry.count += 1;
+    return false;
+  };
+}
+const isChatStartLimited = makeRateLimiter(5, 15 * 60 * 1000);
+const isChatMessageLimited = makeRateLimiter(20, 60 * 1000);
+
+function toPublicChat(chat: StoredChat): Chat {
+  const { token: _token, ...rest } = chat;
+  return rest;
+}
+
+function safeTokenEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
+
+function findCustomerChat(req: Request): StoredChat | null {
+  const chat = getStoreData().chats.find((c) => c.id === req.params.id);
+  const token = typeof req.headers['x-chat-token'] === 'string' ? (req.headers['x-chat-token'] as string) : '';
+  if (!chat || !token || !safeTokenEqual(token, chat.token)) return null;
+  return chat;
+}
+
+function pushChatMessage(chat: StoredChat, from: ChatMessage['from'], text: string): void {
+  const now = Date.now();
+  chat.messages.push({ id: `M-${crypto.randomBytes(4).toString('hex')}`, from, text, at: now });
+  if (chat.messages.length > CHAT_MAX_MESSAGES) {
+    chat.messages = chat.messages.slice(-CHAT_MAX_MESSAGES);
+  }
+  chat.updatedAt = now;
+  if (from === 'customer') chat.unreadByAdmin += 1;
+  else chat.unreadByCustomer += 1;
+}
+
+// Public: customer starts a new chat (name + phone + first message, no account needed)
+app.post('/api/chat/start', async (req, res) => {
+  const ip = getClientIp(req);
+  if (isChatStartLimited(ip)) {
+    return res.status(429).json({ success: false, error: 'تم تجاوز الحد المسموح لبدء المحادثات مؤقتاً، يرجى المحاولة بعد قليل.' });
+  }
+
+  const name = sanitizeString(req.body?.name, 80);
+  const phone = sanitizeString(req.body?.phone, 30);
+  const message = sanitizeString(req.body?.message, CHAT_MAX_TEXT);
+
+  if (name.length < 2) return res.status(400).json({ success: false, error: 'يرجى إدخال اسم صحيح لا يقل عن حرفين' });
+  if (phone.length < 7) return res.status(400).json({ success: false, error: 'يرجى إدخال رقم جوال أو واتساب صحيح' });
+  if (message.length < 1) return res.status(400).json({ success: false, error: 'يرجى كتابة رسالتك' });
+
+  const data = getStoreData();
+  const now = Date.now();
+  const chat: StoredChat = {
+    id: `CHAT-${crypto.randomBytes(4).toString('hex')}`,
+    token: crypto.randomBytes(24).toString('hex'),
+    name,
+    phone,
+    createdAt: now,
+    updatedAt: now,
+    messages: [],
+    unreadByAdmin: 0,
+    unreadByCustomer: 0,
+  };
+  pushChatMessage(chat, 'customer', message);
+
+  data.chats.unshift(chat);
+  if (data.chats.length > CHAT_MAX_CONVERSATIONS) {
+    // Drop the least recently active conversations to keep the store state small.
+    data.chats.sort((a, b) => b.updatedAt - a.updatedAt);
+    data.chats = data.chats.slice(0, CHAT_MAX_CONVERSATIONS);
+  }
+  await saveStoreData(data);
+
+  res.status(201).json({ success: true, token: chat.token, chat: toPublicChat(chat) });
+});
+
+// Public: customer reads own conversation (polled). ?markRead=1 when the chat window is open.
+app.get('/api/chat/:id', async (req, res) => {
+  const chat = findCustomerChat(req);
+  if (!chat) return res.status(404).json({ success: false, error: 'المحادثة غير موجودة' });
+
+  if (req.query.markRead === '1' && chat.unreadByCustomer > 0) {
+    chat.unreadByCustomer = 0;
+    await saveStoreData(getStoreData());
+  }
+  res.json({ success: true, chat: toPublicChat(chat) });
+});
+
+// Public: customer sends a message in own conversation
+app.post('/api/chat/:id/messages', async (req, res) => {
+  const chat = findCustomerChat(req);
+  if (!chat) return res.status(404).json({ success: false, error: 'المحادثة غير موجودة' });
+
+  if (isChatMessageLimited(getClientIp(req))) {
+    return res.status(429).json({ success: false, error: 'رسائل كثيرة خلال وقت قصير، انتظر قليلاً ثم حاول مجدداً.' });
+  }
+  const message = sanitizeString(req.body?.message, CHAT_MAX_TEXT);
+  if (!message) return res.status(400).json({ success: false, error: 'اكتب رسالتك أولاً' });
+
+  pushChatMessage(chat, 'customer', message);
+  await saveStoreData(getStoreData());
+  res.status(201).json({ success: true, chat: toPublicChat(chat) });
+});
+
+// Admin: list all conversations (most recently active first)
+app.get('/api/admin/chats', requireAdminAuth, (req, res) => {
+  const chats = [...getStoreData().chats].sort((a, b) => b.updatedAt - a.updatedAt).map(toPublicChat);
+  res.json({ success: true, chats });
+});
+
+// Admin: reply to a customer
+app.post('/api/admin/chats/:id/messages', requireAdminAuth, async (req, res) => {
+  const data = getStoreData();
+  const chat = data.chats.find((c) => c.id === req.params.id);
+  if (!chat) return res.status(404).json({ success: false, error: 'المحادثة غير موجودة' });
+
+  const message = sanitizeString(req.body?.message, CHAT_MAX_TEXT);
+  if (!message) return res.status(400).json({ success: false, error: 'اكتب الرد أولاً' });
+
+  pushChatMessage(chat, 'admin', message);
+  chat.unreadByAdmin = 0;
+  await saveStoreData(data);
+  res.status(201).json({ success: true, chat: toPublicChat(chat) });
+});
+
+// Admin: mark a conversation as read
+app.put('/api/admin/chats/:id/read', requireAdminAuth, async (req, res) => {
+  const data = getStoreData();
+  const chat = data.chats.find((c) => c.id === req.params.id);
+  if (!chat) return res.status(404).json({ success: false, error: 'المحادثة غير موجودة' });
+  if (chat.unreadByAdmin > 0) {
+    chat.unreadByAdmin = 0;
+    await saveStoreData(data);
+  }
+  res.json({ success: true });
+});
+
+// Admin: delete a conversation
+app.delete('/api/admin/chats/:id', requireAdminAuth, async (req, res) => {
+  const data = getStoreData();
+  const before = data.chats.length;
+  data.chats = data.chats.filter((c) => c.id !== req.params.id);
+  if (data.chats.length === before) return res.status(404).json({ success: false, error: 'المحادثة غير موجودة' });
+  await saveStoreData(data);
+  res.json({ success: true });
 });
 
 // Admin: Fetch all reviews (pending, approved, rejected)
