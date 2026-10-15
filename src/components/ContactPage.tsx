@@ -63,6 +63,9 @@ export const ContactPage: React.FC<ContactPageProps> = ({ settings }) => {
           
           {/* Contact Details Cards */}
           <div className="md:col-span-5 space-y-4">
+
+            {/* Live chat with the store admin */}
+            <ContactChat />
             
             {/* WhatsApp Direct */}
             {settings?.whatsappNumber && (
@@ -126,9 +129,6 @@ export const ContactPage: React.FC<ContactPageProps> = ({ settings }) => {
                 </div>
               </a>
             )}
-
-            {/* Live chat with the store admin */}
-            <ContactChat />
 
             {/* Location & Hours */}
             <div className="p-5 rounded-2xl bg-white border border-[#E6E1D8] shadow-sm space-y-3.5 text-xs text-[#544E43]">

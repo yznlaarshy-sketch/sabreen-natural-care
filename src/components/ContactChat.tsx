@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MessageSquare, Send, ChevronDown } from 'lucide-react';
+import { MessageSquare, Send, ChevronDown, Sparkles } from 'lucide-react';
 import { Chat } from '../types';
 import { startChat, fetchCustomerChat, sendCustomerChatMessage } from '../services/api';
 
@@ -125,42 +125,71 @@ export const ContactChat: React.FC = () => {
 
   const unread = chat?.unreadByCustomer || 0;
   const inputClass =
-    'w-full bg-white border border-[#DCD5C9] rounded-xl px-3.5 py-2.5 text-xs text-[#141416] placeholder:text-[#9A9183] focus:border-[#D4AF37] focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/30';
+    'w-full bg-white border border-[#E3DCCB] rounded-full px-4 py-2.5 text-xs text-[#141416] placeholder:text-[#9A9183] focus:border-[#D4AF37] focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/30';
+  const textareaClass =
+    'w-full bg-white border border-[#E3DCCB] rounded-2xl px-4 py-2.5 text-xs text-[#141416] placeholder:text-[#9A9183] focus:border-[#D4AF37] focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/30 resize-none';
 
   return (
-    <div className="rounded-2xl bg-white border border-[#E6E1D8] shadow-sm overflow-hidden">
+    <div className="relative rounded-3xl overflow-hidden border border-[#D4AF37]/60 shadow-[0_12px_32px_-12px_rgba(212,175,55,0.55)] bg-gradient-to-br from-[#0F0F10] via-[#1A1712] to-[#2A2214]">
       <button
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="w-full p-5 flex items-center gap-4 text-right hover:bg-[#FAF6EE] transition-colors group"
+        className="w-full p-5 flex items-center gap-4 text-right group"
       >
-        <div className="w-12 h-12 rounded-xl bg-[#D4AF37]/15 text-[#B38938] flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-          <MessageSquare className="w-6 h-6" />
+        <div className="relative shrink-0">
+          {!open && <span className="absolute inset-0 rounded-2xl bg-[#D4AF37]/40 animate-ping" />}
+          <div className="relative w-14 h-14 rounded-2xl bg-gradient-to-br from-[#EDD27A] to-[#B38938] text-[#0F0F10] flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
+            <MessageSquare className="w-7 h-7" />
+          </div>
+          {unread > 0 && (
+            <span className="absolute -top-1.5 -left-1.5 bg-rose-600 text-white text-[10px] font-extrabold min-w-[20px] h-5 px-1 flex items-center justify-center rounded-full border-2 border-[#0F0F10]">
+              {unread}
+            </span>
+          )}
         </div>
+
         <div className="flex-1 min-w-0">
-          <h3 className="font-bold text-sm text-[#141416] flex items-center gap-2">
-            دردشة مباشرة مع الإدارة
-            {unread > 0 && (
-              <span className="bg-rose-600 text-white text-[10px] font-extrabold min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full">
-                {unread}
-              </span>
-            )}
-          </h3>
-          <p className="text-xs text-[#736B5E] mt-0.5">
-            {saved ? 'لديك محادثة جارية، اضغطي لمتابعتها' : 'اكتبي لنا هنا وسنرد عليك داخل الموقع'}
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="font-bold text-base text-[#FAF8F5] font-serif-luxury">تحدثي معنا مباشرة</h3>
+            <span className="inline-flex items-center gap-1 text-[9px] bg-[#D4AF37] text-[#0F0F10] px-2 py-0.5 rounded-full font-extrabold">
+              <Sparkles className="w-2.5 h-2.5" />
+              جديد
+            </span>
+          </div>
+          <p className="text-xs text-[#D9D2C3] mt-1 leading-relaxed">
+            {saved ? 'لديك محادثة جارية، اضغطي لمتابعتها' : 'اسألي عن المنتجات والعناية ببشرتك، وسنرد عليك هنا داخل الموقع'}
           </p>
+          {!open && (
+            <span className="inline-block mt-2.5 text-[11px] font-bold text-[#0F0F10] bg-gradient-to-r from-[#EDD27A] to-[#D4AF37] px-3.5 py-1.5 rounded-full shadow">
+              {saved ? 'متابعة المحادثة ←' : 'ابدئي المحادثة الآن ←'}
+            </span>
+          )}
         </div>
-        <ChevronDown className={`w-5 h-5 text-[#B38938] shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+
+        <ChevronDown className={`w-5 h-5 text-[#D4AF37] shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div className="border-t border-[#E6E1D8] bg-[#FDFBF7]">
+        <div className="bg-[#FAF6EE] border-t border-[#D4AF37]/40">
+          {/* Header strip */}
+          <div className="px-5 py-3 flex items-center gap-3 border-b border-[#E9E1CE] bg-white/70">
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#EDD27A] to-[#B38938] text-[#0F0F10] font-extrabold text-sm flex items-center justify-center shadow">
+              د
+            </div>
+            <div className="leading-tight">
+              <div className="text-xs font-bold text-[#141416]">إدارة د. صابرين بشير</div>
+              <div className="text-[10px] text-[#8C6D23]">نرد عليك في أقرب وقت</div>
+            </div>
+          </div>
+
           {!saved ? (
             <form onSubmit={handleStart} className="p-5 space-y-3">
-              <p className="text-xs text-[#6B6355] leading-relaxed">
-                اكتبي اسمك ورقمك ورسالتك، وسنرد عليك هنا في أقرب وقت. ارجعي لهذه الصفحة لاحقاً لرؤية الرد.
-              </p>
+              <div className="flex justify-end">
+                <div className="max-w-[88%] rounded-2xl rounded-tl-sm bg-white border border-[#E9E1CE] px-3.5 py-2.5 text-xs leading-relaxed text-[#141416] shadow-sm">
+                  أهلاً بك 🌿 كيف نقدر نساعدك؟ اكتبي اسمك ورقمك ورسالتك وسنرد عليك هنا.
+                </div>
+              </div>
               <input className={inputClass} placeholder="الاسم" value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} />
               <input
                 className={inputClass}
@@ -172,7 +201,7 @@ export const ContactChat: React.FC = () => {
                 inputMode="tel"
               />
               <textarea
-                className={`${inputClass} resize-none`}
+                className={textareaClass}
                 rows={3}
                 placeholder="اكتبي رسالتك..."
                 value={text}
@@ -184,22 +213,23 @@ export const ContactChat: React.FC = () => {
               <button
                 type="submit"
                 disabled={sending}
-                className="w-full py-3 rounded-xl bg-[#0F0F10] hover:bg-[#D4AF37] text-[#FAF8F5] hover:text-[#0F0F10] font-bold text-xs transition-all disabled:opacity-50"
+                className="w-full py-3 rounded-full bg-gradient-to-r from-[#0F0F10] to-[#2A2214] hover:from-[#D4AF37] hover:to-[#B38938] text-[#FAF8F5] hover:text-[#0F0F10] font-bold text-xs shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-2"
               >
+                <Send className="w-4 h-4 -scale-x-100" />
                 {sending ? 'جاري الإرسال...' : 'بدء المحادثة'}
               </button>
             </form>
           ) : (
             <>
-              <div ref={listRef} className="h-[340px] overflow-y-auto p-4 space-y-2">
+              <div ref={listRef} className="h-[340px] overflow-y-auto p-4 space-y-2.5">
                 {!chat && <p className="text-xs text-[#8C827A] text-center py-6">جاري تحميل المحادثة...</p>}
                 {chat?.messages.map((m) => (
                   <div key={m.id} className={`flex ${m.from === 'customer' ? 'justify-start' : 'justify-end'}`}>
                     <div
-                      className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-xs leading-relaxed whitespace-pre-wrap break-words ${
+                      className={`max-w-[82%] px-3.5 py-2 text-xs leading-relaxed whitespace-pre-wrap break-words shadow-sm ${
                         m.from === 'customer'
-                          ? 'bg-[#D4AF37] text-[#0F0F10]'
-                          : 'bg-white text-[#141416] border border-[#E6E1D8]'
+                          ? 'rounded-2xl rounded-tr-sm bg-gradient-to-br from-[#EDD27A] to-[#D4AF37] text-[#0F0F10]'
+                          : 'rounded-2xl rounded-tl-sm bg-white text-[#141416] border border-[#E9E1CE]'
                       }`}
                     >
                       {m.text}
@@ -211,7 +241,7 @@ export const ContactChat: React.FC = () => {
                   </div>
                 ))}
               </div>
-              <form onSubmit={handleSend} className="p-3 border-t border-[#E6E1D8] space-y-2">
+              <form onSubmit={handleSend} className="p-3 border-t border-[#E9E1CE] bg-white/70 space-y-2">
                 {error && <p className="text-[11px] text-rose-600">{error}</p>}
                 <div className="flex items-center gap-2">
                   <input
@@ -225,7 +255,7 @@ export const ContactChat: React.FC = () => {
                     type="submit"
                     disabled={sending || !text.trim()}
                     aria-label="إرسال"
-                    className="shrink-0 p-3 rounded-xl bg-[#0F0F10] text-[#D4AF37] hover:bg-[#D4AF37] hover:text-[#0F0F10] transition-colors disabled:opacity-50"
+                    className="shrink-0 w-10 h-10 flex items-center justify-center rounded-full bg-gradient-to-br from-[#EDD27A] to-[#B38938] text-[#0F0F10] shadow hover:scale-105 transition-transform disabled:opacity-50 disabled:hover:scale-100"
                   >
                     <Send className="w-4 h-4 -scale-x-100" />
                   </button>
