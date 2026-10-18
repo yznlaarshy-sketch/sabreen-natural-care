@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import type { Product, Order, StoreSettings, Inquiry, Review, Visitor, Chat, ChatMessage } from './src/types';
+import { findAnswer } from './src/faq';
 
 // Persistent store state is kept in Supabase.
 // IMPORTANT: SUPABASE_SERVICE_ROLE_KEY is a server-only secret. Never expose it in the browser.
@@ -1333,15 +1334,37 @@ function findCustomerChat(req: Request): StoredChat | null {
   return chat;
 }
 
-function pushChatMessage(chat: StoredChat, from: ChatMessage['from'], text: string): void {
+function pushChatMessage(chat: StoredChat, from: ChatMessage['from'], text: string, auto = false): void {
   const now = Date.now();
-  chat.messages.push({ id: `M-${crypto.randomBytes(4).toString('hex')}`, from, text, at: now });
+  chat.messages.push({ id: `M-${crypto.randomBytes(4).toString('hex')}`, from, text, at: now, ...(auto ? { auto: true } : {}) });
   if (chat.messages.length > CHAT_MAX_MESSAGES) {
     chat.messages = chat.messages.slice(-CHAT_MAX_MESSAGES);
   }
   chat.updatedAt = now;
   if (from === 'customer') chat.unreadByAdmin += 1;
   else chat.unreadByCustomer += 1;
+}
+
+// Automatic replies: a welcome message when a chat starts, plus a ready-made answer when the
+// customer's question matches a frequently asked question. The owner always takes over by replying.
+const AUTO_WELCOME = 'أهلاً بكِ في متجر د. صابرين بشير للعناية الطبيعية 🌿 وصلتنا رسالتك، وستردّ عليك صاحبة المتجر في أقرب وقت.';
+const AUTO_NOTE = '(رد تلقائي، وستتابع معك صاحبة المتجر)';
+
+function addAutoReply(chat: StoredChat, customerText: string, isFirstMessage: boolean): void {
+  const now = Date.now();
+  const faq = findAnswer(customerText);
+
+  if (isFirstMessage) {
+    pushChatMessage(chat, 'admin', faq ? `${AUTO_WELCOME}\n\n${faq.a}` : AUTO_WELCOME, true);
+    return;
+  }
+  if (!faq) return;
+  // Stay quiet while the owner herself is replying (last manual reply in the past 10 minutes)
+  const lastOwner = [...chat.messages].reverse().find((m) => m.from === 'admin' && !m.auto);
+  if (lastOwner && now - lastOwner.at < 10 * 60 * 1000) return;
+  // Don't repeat the same answer again and again
+  if (chat.messages.some((m) => m.auto && m.text.includes(faq.a))) return;
+  pushChatMessage(chat, 'admin', `${faq.a}\n\n${AUTO_NOTE}`, true);
 }
 
 // Public: customer starts a new chat (name + phone + first message, no account needed)
@@ -1373,6 +1396,7 @@ app.post('/api/chat/start', async (req, res) => {
     unreadByCustomer: 0,
   };
   pushChatMessage(chat, 'customer', message);
+  addAutoReply(chat, message, true);
 
   data.chats.unshift(chat);
   if (data.chats.length > CHAT_MAX_CONVERSATIONS) {
@@ -1409,6 +1433,7 @@ app.post('/api/chat/:id/messages', async (req, res) => {
   if (!message) return res.status(400).json({ success: false, error: 'اكتب رسالتك أولاً' });
 
   pushChatMessage(chat, 'customer', message);
+  addAutoReply(chat, message, false);
   await saveStoreData(getStoreData());
   res.status(201).json({ success: true, chat: toPublicChat(chat) });
 });

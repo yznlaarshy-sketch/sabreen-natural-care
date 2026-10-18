@@ -121,6 +121,7 @@ export interface ChatMessage {
   from: 'customer' | 'admin';
   text: string;
   at: number;
+  auto?: boolean; // true when sent automatically by the store (not typed by the owner)
 }
 
 export interface Chat {

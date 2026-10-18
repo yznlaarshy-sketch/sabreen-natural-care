@@ -199,6 +199,7 @@ export const AdminChatPanel: React.FC<AdminChatPanelProps> = ({ token, chats, re
                         : 'bg-gradient-to-r from-[#D4AF37] to-[#B38938] text-[#0E0E10]'
                     }`}
                   >
+                    {m.auto && <span className="block text-[9px] font-bold text-[#0E0E10]/70 mb-0.5">رد تلقائي</span>}
                     {m.text}
                     <div className={`text-[9px] mt-1 ${m.from === 'customer' ? 'text-[#8C827A]' : 'text-[#0E0E10]/60'}`}>
                       {formatDateTime(m.at)}
