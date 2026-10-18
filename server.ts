@@ -121,6 +121,29 @@ async function uploadReceiptImage(orderId: string, dataUrl: string): Promise<str
   return `${SUPABASE_URL}/storage/v1/object/public/${RECEIPTS_BUCKET}/${fileName}`;
 }
 
+// Deletes a receipt image from Supabase Storage (used when the order is deleted).
+// Only touches files in our own receipts bucket; images still stored inside the order are removed with it.
+async function deleteReceiptImage(receiptUrl: string | undefined): Promise<void> {
+  try {
+    const prefix = `${SUPABASE_URL}/storage/v1/object/public/${RECEIPTS_BUCKET}/`;
+    if (!receiptUrl || !receiptUrl.startsWith(prefix)) return;
+    const fileName = decodeURIComponent(receiptUrl.slice(prefix.length));
+    if (!fileName || fileName.includes('/') || fileName.includes('..')) return;
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${RECEIPTS_BUCKET}/${encodeURIComponent(fileName)}`, {
+      method: 'DELETE',
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY!,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY!}`,
+      },
+    });
+    if (!res.ok && res.status !== 404) {
+      console.error(`Receipt delete failed: ${res.status} ${await res.text()}`);
+    }
+  } catch (e) {
+    console.error('Receipt delete failed:', e);
+  }
+}
+
 // One-time background migration: moves receipts that are still base64 inside old orders to Storage.
 // Safe to run on every start: orders already migrated are skipped, and a failed upload leaves the
 // original image untouched so nothing is ever lost.
@@ -1213,15 +1236,16 @@ app.delete('/api/admin/orders/:id', requireAdminAuth, async (req, res) => {
   const { id } = req.params;
   const data = getStoreData();
 
-  const initialLength = data.orders.length;
-  data.orders = data.orders.filter(o => o.id !== id);
-
-  if (data.orders.length === initialLength) {
+  const orderToDelete = data.orders.find(o => o.id === id);
+  if (!orderToDelete) {
     return res.status(404).json({ success: false, error: 'الطلب غير موجود' });
   }
+  data.orders = data.orders.filter(o => o.id !== id);
 
   await saveStoreData(data);
-  res.json({ success: true, message: 'تم حذف الطلب بنجاح من السجل' });
+  // Remove the receipt image from Storage too, so deleted orders leave nothing behind.
+  await deleteReceiptImage(orderToDelete.receiptImage);
+  res.json({ success: true, message: 'تم حذف الطلب وصورة الإيصال نهائياً' });
 });
 
 // Admin: List all contact inquiries
