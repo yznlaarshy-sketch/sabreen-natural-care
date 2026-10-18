@@ -33,6 +33,20 @@ interface AdminChatPanelProps {
   refresh: () => Promise<void>;
 }
 
+// Ready-made quick replies for the store owner (tap to fill the reply box).
+const QUICK_REPLIES: { label: string; text: string }[] = [
+  { label: 'أهلاً وسهلاً', text: 'أهلاً وسهلاً بكِ في متجر د. صابرين بشير للعناية الطبيعية، كيف أقدر أساعدك؟' },
+  { label: 'شكراً لتواصلك', text: 'شكراً لتواصلك معنا، يسعدنا خدمتك دائماً.' },
+  { label: 'المنتج متوفر', text: 'نعم، المنتج متوفر حالياً ويمكنك طلبه من الموقع مباشرة.' },
+  { label: 'المنتج غير متوفر', text: 'نعتذر منكِ، المنتج غير متوفر حالياً وسنعلمك فور توفره بإذن الله.' },
+  { label: 'طريقة الدفع', text: 'الدفع بالتحويل (بنك فلسطين أو أي بنك أو محفظة جوال باي / بال باي)، وتظهر بيانات الحساب في صفحة إتمام الطلب، ثم ترفعين صورة إشعار التحويل.' },
+  { label: 'مدة التوصيل', text: 'مدة التوصيل من يومين إلى 5 أيام عمل حسب منطقتك داخل قطاع غزة والجنوب.' },
+  { label: 'تم استلام طلبك', text: 'تم استلام طلبك وجاري تدقيق التحويل، وسنوافيك بالتأكيد قريباً. يمكنك متابعة حالة الطلب من صفحة "تتبع طلبك" في الموقع.' },
+  { label: 'تم تأكيد طلبك', text: 'تم تأكيد طلبك وجاري تجهيزه للتوصيل، شكراً لثقتك بنا.' },
+  { label: 'نرجو الانتظار', text: 'نرجو الانتظار قليلاً وسنرد عليك خلال وقت قصير.' },
+];
+
+
 export const AdminChatPanel: React.FC<AdminChatPanelProps> = ({ token, chats, refresh }) => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [reply, setReply] = useState('');
@@ -196,6 +210,19 @@ export const AdminChatPanel: React.FC<AdminChatPanelProps> = ({ token, chats, re
             </div>
 
             <form onSubmit={handleSend} className="p-3 border-t border-[#27272D] space-y-2">
+              {/* Quick ready-made replies: tap to fill the box, edit if needed, then send */}
+              <div className="flex gap-1.5 overflow-x-auto pb-1" aria-label="ردود جاهزة">
+                {QUICK_REPLIES.map((q) => (
+                  <button
+                    key={q.label}
+                    type="button"
+                    onClick={() => setReply(q.text)}
+                    className="shrink-0 text-[11px] px-2.5 py-1 rounded-full bg-[#1F1F24] border border-[#2F2F34] text-[#D4AF37] hover:border-[#D4AF37] transition-colors"
+                  >
+                    {q.label}
+                  </button>
+                ))}
+              </div>
               {error && <p className="text-[11px] text-rose-400">{error}</p>}
               <div className="flex items-center gap-2">
                 <input

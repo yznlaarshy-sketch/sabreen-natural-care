@@ -4,7 +4,7 @@ import {
   Clock, CheckCircle, XCircle, Trash2, Plus, Edit, Eye, EyeOff,
   Phone, MessageCircle, ExternalLink, AlertTriangle, Sparkles, Image,
   DollarSign, ShieldAlert, ArrowLeft, RefreshCw, Layers, Lock, ShieldCheck,
-  Facebook, Instagram, MessageSquare
+  Facebook, Instagram, MessageSquare, Link2, Download, BellRing
 } from 'lucide-react';
 import { AdminChatPanel, useAdminChats } from './AdminChatPanel';
 import { Product, Order, StoreSettings, OrderStatus, PromoVideo, Review, Visitor } from '../types';
@@ -24,8 +24,37 @@ import {
   deleteReview,
   fetchAdminVisitors,
   setVisitorBlocked,
-  deleteVisitor
+  deleteVisitor,
+  fetchAdminStats,
+  downloadBackup,
+  ProductStatRow
 } from '../services/api';
+
+// Turns a local phone number (059xxxxxxx) into the international form WhatsApp links need.
+function toWhatsappNumber(phone: string): string {
+  let d = phone.replace(/[^0-9]/g, '');
+  if (d.startsWith('00')) d = d.slice(2);
+  else if (d.startsWith('0')) d = '970' + d.slice(1);
+  return d;
+}
+
+// WhatsApp link that tells the customer what happened to their order (accepted / rejected / delivered),
+// with a link to the "track your order" page.
+function buildOrderNotifyLink(order: Order): string {
+  const trackUrl = `${window.location.origin}/?track=${encodeURIComponent(order.id)}`;
+  let body: string;
+  if (order.status === 'approved') {
+    body = `تم قبول طلبك رقم ${order.id} وجاري تجهيزه للتوصيل. شكراً لثقتك بنا.${order.adminNote ? `\nملاحظة: ${order.adminNote}` : ''}`;
+  } else if (order.status === 'completed') {
+    body = `تم توصيل طلبك رقم ${order.id}. شكراً لثقتك بنا، ويسعدنا سماع رأيك بالمنتجات.`;
+  } else if (order.status === 'rejected') {
+    body = `نعتذر منك، لم نتمكن من قبول طلبك رقم ${order.id}.${order.rejectionReason ? `\nالسبب: ${order.rejectionReason}` : ''}`;
+  } else {
+    body = `وصلنا طلبك رقم ${order.id} وجاري تدقيق التحويل، وسنوافيك بالتأكيد قريباً.`;
+  }
+  const text = `أهلاً ${order.customerName}،\n${body}\nيمكنك متابعة حالة طلبك من هنا: ${trackUrl}\n- متجر د. صابرين بشير`;
+  return `https://wa.me/${toWhatsappNumber(order.phone)}?text=${encodeURIComponent(text)}`;
+}
 
 interface AdminDashboardProps {
   token: string;
@@ -214,6 +243,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  // Per-product statistics (views, shared-link visits, cart adds, units sold)
+  const [productStats, setProductStats] = useState<Record<string, ProductStatRow>>({});
+  const loadStats = async () => {
+    try {
+      const rows = await fetchAdminStats(token);
+      setProductStats(Object.fromEntries(rows.map((r) => [r.productId, r])));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const [backupBusy, setBackupBusy] = useState(false);
+  const handleBackup = async () => {
+    setBackupBusy(true);
+    try {
+      const ok = await downloadBackup(token);
+      showNotification(ok ? 'تم تحميل النسخة الاحتياطية، احتفظي بالملف في مكان آمن' : 'تعذر تحميل النسخة الاحتياطية', ok ? 'success' : 'error');
+    } catch {
+      showNotification('تعذر تحميل النسخة الاحتياطية', 'error');
+    } finally {
+      setBackupBusy(false);
+    }
+  };
+
+  const handleCopyProductLink = async (prod: Product) => {
+    const link = `${window.location.origin}/?p=${encodeURIComponent(prod.id)}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      showNotification(`تم نسخ رابط "${prod.name}"، يمكنك مشاركته الآن`);
+    } catch {
+      window.prompt('انسخي رابط المنتج:', link);
+    }
+  };
+
   const loadReviews = async () => {
     try {
       const data = await fetchAdminReviews(token);
@@ -237,7 +300,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     loadProducts();
     loadReviews();
     loadVisitors();
+    loadStats();
   }, [token]);
+
+  // Refresh the numbers each time the products tab is opened
+  useEffect(() => {
+    if (activeTab === 'products') loadStats();
+  }, [activeTab]);
 
   const showNotification = (text: string, type: 'success' | 'error' = 'success') => {
     setFeedbackMessage({ type, text });
@@ -1247,6 +1316,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             </>
                           )}
 
+                          <a
+                            href={buildOrderNotifyLink(order)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-4 py-2 rounded-xl bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 font-bold text-xs flex items-center gap-1.5 border border-emerald-700/50 transition-all"
+                            title="يفتح واتساب برسالة جاهزة تبلّغ الزبون بحالة طلبه"
+                          >
+                            <BellRing className="w-4 h-4" />
+                            <span>إبلاغ الزبون</span>
+                          </a>
+
                           {order.status === 'approved' && (
                             <button
                               onClick={() => handleMarkCompleted(order.id)}
@@ -1698,6 +1778,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                     </div>
 
+                    {/* Statistics + private share link for this product */}
+                    <div className="grid grid-cols-4 gap-1.5 text-center text-[10px]">
+                      <div className="rounded-lg bg-[#1F1F24] border border-[#2B2B32] py-1.5">
+                        <div className="font-extrabold text-[#FAF7F2] text-xs">{productStats[prod.id]?.views ?? 0}</div>
+                        <div className="text-[#A8A295]">مشاهدة</div>
+                      </div>
+                      <div className="rounded-lg bg-[#1F1F24] border border-[#2B2B32] py-1.5">
+                        <div className="font-extrabold text-[#FAF7F2] text-xs">{productStats[prod.id]?.linkVisits ?? 0}</div>
+                        <div className="text-[#A8A295]">من الرابط</div>
+                      </div>
+                      <div className="rounded-lg bg-[#1F1F24] border border-[#2B2B32] py-1.5">
+                        <div className="font-extrabold text-[#FAF7F2] text-xs">{productStats[prod.id]?.cartAdds ?? 0}</div>
+                        <div className="text-[#A8A295]">للسلة</div>
+                      </div>
+                      <div className="rounded-lg bg-[#1F1F24] border border-[#D4AF37]/30 py-1.5">
+                        <div className="font-extrabold text-[#D4AF37] text-xs">{productStats[prod.id]?.unitsSold ?? 0}</div>
+                        <div className="text-[#A8A295]">مبيع</div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleCopyProductLink(prod)}
+                      className="w-full py-2 rounded-xl bg-[#202024] hover:bg-[#D4AF37] hover:text-[#0E0E10] text-[#D4AF37] border border-[#D4AF37]/40 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all"
+                      title="نسخ رابط خاص بهذا المنتج لمشاركته"
+                    >
+                      <Link2 className="w-3.5 h-3.5" />
+                      <span>نسخ رابط المنتج للمشاركة</span>
+                    </button>
+
                   </div>
                 );
               })}
@@ -2033,6 +2143,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* ===================== TAB 4: SECURITY ===================== */}
         {activeTab === 'security' && (
           <div className="max-w-2xl mx-auto space-y-6 text-right" dir="rtl">
+
+            {/* Backup Card */}
+            <div className="bg-[#17171A] p-6 rounded-3xl border border-[#27272D] shadow-xl space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#D4AF37] flex items-center justify-center shrink-0">
+                  <Download className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-[#FAF7F2] font-serif-luxury">النسخة الاحتياطية</h2>
+                  <p className="text-xs text-[#A8A295]">تحميل ملف فيه الطلبات والمنتجات والمحادثات والتقييمات والإعدادات.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleBackup}
+                disabled={backupBusy}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-[#D4AF37] to-[#B38938] text-[#0E0E10] font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <Download className="w-4 h-4" />
+                <span>{backupBusy ? 'جاري التحضير...' : 'تحميل نسخة احتياطية الآن'}</span>
+              </button>
+              <p className="text-[11px] text-[#8C827A] leading-relaxed">
+                لأمانك، لا تحتوي النسخة على كلمة مرور الإدارة. احفظي الملف في مكان آمن ولا تشاركيه مع أحد لأنه يضم بيانات زبائنك.
+              </p>
+            </div>
             
             {/* Security Features Overview Card */}
             <div className="bg-[#17171A] p-6 rounded-3xl border border-[#D4AF37]/30 shadow-xl space-y-4">

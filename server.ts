@@ -73,6 +73,80 @@ async function uploadPromoVideoFile(fileName: string, contentType: string, fileB
   return `${SUPABASE_URL}/storage/v1/object/public/${PROMO_MEDIA_BUCKET}/${safeName}`;
 }
 
+// --- Order receipt images in Supabase Storage ---
+// Receipts used to be stored as base64 text inside the store_state JSON, which made every
+// read/write of the store heavier with each new order. They now live in Storage and the
+// order only keeps a short URL. The file names are long random strings, so a URL cannot be guessed.
+const RECEIPTS_BUCKET = 'order-receipts';
+let receiptsBucketReady = false;
+
+async function ensureReceiptsBucket(): Promise<void> {
+  if (receiptsBucketReady) return;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY!,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY!}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ id: RECEIPTS_BUCKET, name: RECEIPTS_BUCKET, public: true }),
+  });
+  if (res.ok || res.status === 400 || res.status === 409) {
+    receiptsBucketReady = true;
+    return;
+  }
+  throw new Error(`Failed to prepare receipts bucket: ${res.status} ${await res.text()}`);
+}
+
+// Uploads a base64 data-URL receipt and returns its public URL. Throws on any failure.
+async function uploadReceiptImage(orderId: string, dataUrl: string): Promise<string> {
+  const m = /^data:(image\/(png|jpe?g|webp|gif|heic|heif|bmp));base64,(.+)$/is.exec(dataUrl);
+  if (!m) throw new Error('Not a valid receipt data URL');
+  const contentType = m[1].toLowerCase();
+  const ext = m[2].toLowerCase().replace('jpeg', 'jpg');
+  const buffer = Buffer.from(m[3], 'base64');
+  await ensureReceiptsBucket();
+  const fileName = `${orderId.replace(/[^a-zA-Z0-9-]/g, '')}-${crypto.randomBytes(16).toString('hex')}.${ext}`;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${RECEIPTS_BUCKET}/${fileName}`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY!,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY!}`,
+      'Content-Type': contentType,
+      'x-upsert': 'true',
+    },
+    body: buffer,
+  });
+  if (!res.ok) throw new Error(`Receipt upload failed: ${res.status} ${await res.text()}`);
+  return `${SUPABASE_URL}/storage/v1/object/public/${RECEIPTS_BUCKET}/${fileName}`;
+}
+
+// One-time background migration: moves receipts that are still base64 inside old orders to Storage.
+// Safe to run on every start: orders already migrated are skipped, and a failed upload leaves the
+// original image untouched so nothing is ever lost.
+async function migrateOldReceipts(): Promise<void> {
+  try {
+    const data = getStoreData();
+    let moved = 0;
+    for (const order of data.orders) {
+      if (typeof order.receiptImage === 'string' && order.receiptImage.startsWith('data:')) {
+        try {
+          order.receiptImage = await uploadReceiptImage(order.id, order.receiptImage);
+          moved += 1;
+        } catch (e) {
+          console.error(`Receipt migration skipped for ${order.id}:`, e);
+        }
+      }
+    }
+    if (moved > 0) {
+      await saveStoreData(data);
+      console.log(`Receipt migration: moved ${moved} receipt image(s) to Supabase Storage`);
+    }
+  } catch (e) {
+    console.error('Receipt migration failed:', e);
+  }
+}
+
 const app = express();
 app.disable('x-powered-by'); // don't advertise the server framework
 const PORT = Number(process.env.PORT || 3000);
@@ -196,6 +270,7 @@ function createInitialStoreData(): StoreData {
         if (!Array.isArray(seeded.reviews)) seeded.reviews = [];
         if (!Array.isArray(seeded.visitors)) seeded.visitors = [];
         if (!Array.isArray(seeded.chats)) seeded.chats = [];
+        if (!seeded.productStats || typeof seeded.productStats !== 'object') seeded.productStats = {};
         return seeded;
       }
     }
@@ -210,6 +285,7 @@ function createInitialStoreData(): StoreData {
     reviews: [],
     visitors: [],
     chats: [],
+    productStats: {},
     settings: defaultSettings,
     admin: { username: 'sabreen', salt: defaultAdminSalt, passwordHash: defaultAdminHash }
   };
@@ -236,6 +312,7 @@ async function initializePersistence(): Promise<void> {
     if (!Array.isArray(remote.reviews)) remote.reviews = [];
     if (!Array.isArray(remote.visitors)) remote.visitors = [];
     if (!Array.isArray(remote.chats)) remote.chats = [];
+    if (!remote.productStats || typeof remote.productStats !== 'object') remote.productStats = {};
     runtimeStoreData = remote;
     console.log('Persistence: Supabase (existing store state loaded)');
     return;
@@ -523,6 +600,13 @@ const defaultAdminHash = '7dbf329c7c707d4bcd9b11ce1561737c5a09e47e0ac595b8d2f1c6
 // A customer chat. `token` is a secret only the customer's browser holds; it is never sent to the admin list.
 type StoredChat = Chat & { token: string };
 
+// Simple per-product counters shown in the admin dashboard.
+interface ProductStat {
+  views: number;      // product details opened
+  linkVisits: number; // visits that came from a shared product link (?p=...)
+  cartAdds: number;   // times added to a cart
+}
+
 interface StoreData {
   products: Product[];
   orders: Order[];
@@ -530,6 +614,7 @@ interface StoreData {
   reviews: Review[];
   visitors: Visitor[];
   chats: StoredChat[];
+  productStats: Record<string, ProductStat>;
   settings: StoreSettings;
   admin: {
     username: string;
@@ -673,15 +758,29 @@ app.post('/api/orders', async (req, res) => {
   const shippingFee = data.settings.shippingFee || 0;
   const finalTotal = totalAmount + shippingFee;
 
+  // Pick an order number that is not already used
+  let orderId = `SB-${Math.floor(1000 + Math.random() * 9000)}`;
+  for (let i = 0; i < 20 && data.orders.some(o => o.id === orderId); i++) {
+    orderId = `SB-${Math.floor(1000 + Math.random() * 9000)}`;
+  }
+
+  // Keep the receipt image in Supabase Storage; if that fails, keep it inside the order so it is never lost.
+  let storedReceipt = receiptImage;
+  try {
+    storedReceipt = await uploadReceiptImage(orderId, receiptImage);
+  } catch (e) {
+    console.error('Receipt upload failed, keeping image inside the order:', e);
+  }
+
   const newOrder: Order = {
-    id: `SB-${Math.floor(1000 + Math.random() * 9000)}`,
+    id: orderId,
     createdAt: Date.now(),
     customerName: cleanName,
     phone: cleanPhone,
     deliveryZone: cleanZone,
     address: cleanAddress,
     transferInfo: cleanTransferInfo,
-    receiptImage,
+    receiptImage: storedReceipt,
     items: verifiedItems,
     totalAmount: finalTotal,
     status: 'pending'
@@ -695,6 +794,90 @@ app.post('/api/orders', async (req, res) => {
     message: 'تم استلام طلبك بنجاح وسنتواصل معك بعد تدقيق التحويل!',
     order: newOrder
   });
+});
+
+// Public: customer checks the status of their own order (needs order number + the phone used in the order).
+const trackRateLimits = new Map<string, OrderRateLimit>();
+function isTrackRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const limit = trackRateLimits.get(ip);
+  if (!limit || now > limit.resetTime) {
+    trackRateLimits.set(ip, { count: 1, resetTime: now + 15 * 60 * 1000 });
+    return false;
+  }
+  if (limit.count >= 15) return true;
+  limit.count += 1;
+  return false;
+}
+
+function phoneDigits(v: string): string {
+  return String(v || '').replace(/[^0-9]/g, '');
+}
+
+// Phones match when one ends with the other (so 0599123456 matches +970599123456), at least 7 digits.
+function phonesMatch(a: string, b: string): boolean {
+  const x = phoneDigits(a);
+  const y = phoneDigits(b);
+  if (x.length < 7 || y.length < 7) return false;
+  return x.endsWith(y.slice(-9)) || y.endsWith(x.slice(-9));
+}
+
+app.post('/api/orders/track', (req, res) => {
+  if (isTrackRateLimited(getClientIp(req))) {
+    return res.status(429).json({ success: false, error: 'محاولات كثيرة، يرجى الانتظار قليلاً ثم المحاولة مجدداً.' });
+  }
+  const orderId = sanitizeString(req.body?.orderId, 30).toUpperCase();
+  const phone = sanitizeString(req.body?.phone, 30);
+  if (!orderId || !phone) {
+    return res.status(400).json({ success: false, error: 'يرجى إدخال رقم الطلب ورقم الجوال المستخدم في الطلب.' });
+  }
+  const order = getStoreData().orders.find(o => o.id.toUpperCase() === orderId);
+  // Same message for "no such order" and "wrong phone" so order numbers cannot be probed.
+  if (!order || !phonesMatch(order.phone, phone)) {
+    return res.status(404).json({ success: false, error: 'لم نجد طلباً بهذه البيانات، تأكدي من رقم الطلب ومن رقم الجوال المكتوب في الطلب.' });
+  }
+  res.json({
+    success: true,
+    order: {
+      id: order.id,
+      createdAt: order.createdAt,
+      status: order.status,
+      totalAmount: order.totalAmount,
+      itemsCount: order.items.reduce((n, i) => n + i.quantity, 0),
+      items: order.items.map(i => ({ productName: i.productName, quantity: i.quantity })),
+      adminNote: order.status === 'approved' || order.status === 'completed' ? order.adminNote || '' : '',
+      rejectionReason: order.status === 'rejected' ? order.rejectionReason || '' : ''
+    }
+  });
+});
+
+// Public: count a product event (opened details / added to cart / came from a shared link).
+// De-duplicated per visitor and per product for 30 minutes so refreshing does not inflate numbers.
+const productEventSeen = new Map<string, number>();
+app.post('/api/products/:id/track', async (req, res) => {
+  const event = req.body?.event;
+  if (event !== 'view' && event !== 'cart' && event !== 'link') {
+    return res.status(400).json({ success: false });
+  }
+  const data = getStoreData();
+  const id = String(req.params.id);
+  if (!data.products.some(p => p.id === id)) return res.status(404).json({ success: false });
+
+  const now = Date.now();
+  const key = `${getClientIp(req)}|${id}|${event}`;
+  const last = productEventSeen.get(key);
+  if (last && now - last < 30 * 60 * 1000) return res.json({ success: true, counted: false });
+  productEventSeen.set(key, now);
+  if (productEventSeen.size > 20000) {
+    for (const [k, t] of productEventSeen) if (now - t > 30 * 60 * 1000) productEventSeen.delete(k);
+  }
+
+  const stat = data.productStats[id] || (data.productStats[id] = { views: 0, linkVisits: 0, cartAdds: 0 });
+  if (event === 'view') stat.views += 1;
+  else if (event === 'link') stat.linkVisits += 1;
+  else stat.cartAdds += 1;
+  await saveStoreData(data);
+  res.json({ success: true, counted: true });
 });
 
 // Public: Submit a contact inquiry (from the "تواصل" page form)
@@ -962,6 +1145,41 @@ app.post('/api/admin/logout', (req, res) => {
     saveSessions();
   }
   res.json({ success: true, message: 'تم إنهاء الجلسة وإلغاء التصريح بنجاح' });
+});
+
+// Admin: product statistics (views / shared-link visits / cart adds from counters, sales from real orders)
+app.get('/api/admin/stats', requireAdminAuth, (req, res) => {
+  const data = getStoreData();
+  const sold: Record<string, { units: number; revenue: number; orders: number }> = {};
+  for (const o of data.orders) {
+    if (o.status !== 'approved' && o.status !== 'completed') continue;
+    for (const it of o.items) {
+      const s = sold[it.productId] || (sold[it.productId] = { units: 0, revenue: 0, orders: 0 });
+      s.units += it.quantity;
+      s.revenue += it.price * it.quantity;
+      s.orders += 1;
+    }
+  }
+  const stats = data.products.map(p => ({
+    productId: p.id,
+    views: data.productStats[p.id]?.views || 0,
+    linkVisits: data.productStats[p.id]?.linkVisits || 0,
+    cartAdds: data.productStats[p.id]?.cartAdds || 0,
+    unitsSold: sold[p.id]?.units || 0,
+    revenue: sold[p.id]?.revenue || 0
+  }));
+  res.json({ success: true, stats });
+});
+
+// Admin: full backup of the store as a downloadable JSON file.
+// The admin password hash and salt are deliberately left out so a backup file can't leak the login.
+app.get('/api/admin/backup', requireAdminAuth, (req, res) => {
+  const data = getStoreData();
+  const { admin, ...rest } = data;
+  const stamp = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="sabreen-backup-${stamp}.json"`);
+  res.send(JSON.stringify({ backupCreatedAt: Date.now(), adminUsername: admin.username, ...rest }, null, 2));
 });
 
 // Admin: Get all orders
@@ -1488,6 +1706,8 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Sabreen Basheer Natural Care server running on port ${PORT}`);
+    // Move old base64 receipts into Supabase Storage in the background.
+    migrateOldReceipts();
   });
 }
 

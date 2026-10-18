@@ -4,7 +4,7 @@ import {
   ShoppingBag, ShieldCheck, Heart, Leaf, Package, AlertCircle
 } from 'lucide-react';
 import { Product, CartItem, StoreSettings, Order } from './types';
-import { fetchProducts, fetchSettings, verifyAdminToken, fetchCurrentAdminUser, trackVisit } from './services/api';
+import { fetchProducts, fetchSettings, verifyAdminToken, fetchCurrentAdminUser, trackVisit, trackProductEvent } from './services/api';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
 import { PromoVideoBanner } from './components/PromoVideoBanner';
@@ -18,6 +18,7 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { AboutPage } from './components/AboutPage';
 import { ContactPage } from './components/ContactPage';
 import { PolicyPage } from './components/PolicyPage';
+import { TrackOrderPage } from './components/TrackOrderPage';
 import { Footer } from './components/Footer';
 import { HelpAssistant } from './components/HelpAssistant';
 
@@ -73,13 +74,26 @@ export default function App() {
   });
 
   // Navigation & Filtering
-  const [currentView, setCurrentView] = useState<string>('store'); // 'store' | 'new' | 'bestsellers' | 'about' | 'contact' | 'policy'
+  // Links like /?track=SB-1234 open the order-tracking page directly
+  const initialTrackId = (() => {
+    try {
+      return new URLSearchParams(window.location.search).get('track') || '';
+    } catch {
+      return '';
+    }
+  })();
+  const [currentView, setCurrentView] = useState<string>(initialTrackId ? 'track' : 'store'); // 'store' | 'new' | 'bestsellers' | 'about' | 'contact' | 'policy' | 'track'
   const [selectedCategory, setSelectedCategory] = useState<string>('الكل');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortBy, setSortBy] = useState<'default' | 'price-asc' | 'price-desc' | 'name'>('default');
 
   // Modals & Drawers
-  const [selectedProductDetails, setSelectedProductDetails] = useState<Product | null>(null);
+  const [selectedProductDetails, setSelectedProductDetailsRaw] = useState<Product | null>(null);
+  // Opening a product's details also counts as one "view" in the owner's statistics
+  const setSelectedProductDetails = (product: Product | null) => {
+    setSelectedProductDetailsRaw(product);
+    if (product) trackProductEvent(product.id, 'view');
+  };
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   // Admin login modal: opened only via the secret keyboard shortcut (Ctrl/Cmd + Shift + A)
@@ -147,6 +161,25 @@ export default function App() {
     loadData();
   }, []);
 
+  // A shared product link (/?p=PRODUCT_ID) opens that product's details once the products are loaded
+  const sharedLinkHandled = React.useRef(false);
+  useEffect(() => {
+    if (sharedLinkHandled.current || products.length === 0) return;
+    try {
+      const id = new URLSearchParams(window.location.search).get('p');
+      if (!id) {
+        sharedLinkHandled.current = true;
+        return;
+      }
+      const product = products.find((p) => p.id === id && !p.hidden);
+      sharedLinkHandled.current = true;
+      if (product) {
+        trackProductEvent(product.id, 'link');
+        setSelectedProductDetails(product);
+      }
+    } catch {}
+  }, [products]);
+
   // Log this visit once per browser session (used by the admin's visitors/block panel)
   useEffect(() => {
     try {
@@ -193,6 +226,7 @@ export default function App() {
 
   // Cart Operations
   const handleAddToCart = (product: Product, quantity = 1) => {
+    trackProductEvent(product.id, 'cart');
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
       if (existing) {
@@ -386,6 +420,9 @@ export default function App() {
 
         {/* ================= VIEW: SHIPPING & POLICIES ================= */}
         {currentView === 'policy' && <PolicyPage />}
+
+        {/* ================= VIEW: TRACK ORDER ================= */}
+        {currentView === 'track' && <TrackOrderPage initialOrderId={initialTrackId} />}
 
         {/* ================= VIEW: STORE & PRODUCTS ================= */}
         {(currentView === 'store' || currentView === 'new' || currentView === 'bestsellers') && (

@@ -167,6 +167,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               <p className="text-xs sm:text-sm text-[#544E43] max-w-md mx-auto leading-relaxed">
                 تم استلام طلبك وإثبات التحويل بنجاح. سيقوم فريق المتجر بمراجعة الإيصال وتجهيز طلبك وإرساله لعنوانك خلال أقرب وقت.
               </p>
+              <p className="text-[11px] text-[#736B5E] max-w-md mx-auto leading-relaxed">
+                احتفظي برقم الطلب أعلاه، ويمكنك معرفة إن كان طلبك مقبولاً أو مرفوضاً من «تتبع طلبك» في أسفل الموقع.
+              </p>
             </div>
 
             {/* Order Details Card */}

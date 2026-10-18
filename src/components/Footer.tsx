@@ -133,6 +133,14 @@ export const Footer: React.FC<FooterProps> = ({ settings, onNavigate }) => {
               </li>
               <li>
                 <button
+                  onClick={() => onNavigate('track')}
+                  className="hover:text-[#D4AF37] transition-colors font-semibold text-[#D4AF37]"
+                >
+                  تتبع طلبك
+                </button>
+              </li>
+              <li>
+                <button
                   onClick={() => onNavigate('policy')}
                   className="hover:text-[#D4AF37] transition-colors"
                 >

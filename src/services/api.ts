@@ -397,3 +397,75 @@ export async function deleteAdminChat(token: string, id: string): Promise<boolea
   const data = await res.json();
   return Boolean(data.success);
 }
+
+// --- Order tracking (public) ---
+
+export interface TrackedOrder {
+  id: string;
+  createdAt: number;
+  status: 'pending' | 'approved' | 'rejected' | 'completed';
+  totalAmount: number;
+  itemsCount: number;
+  items: { productName: string; quantity: number }[];
+  adminNote: string;
+  rejectionReason: string;
+}
+
+export async function trackOrder(
+  orderId: string,
+  phone: string
+): Promise<{ success: boolean; error?: string; order?: TrackedOrder }> {
+  const res = await fetch(`${API_BASE}/orders/track`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orderId, phone })
+  });
+  return res.json();
+}
+
+// --- Product statistics ---
+
+// Fire-and-forget counter: never blocks or breaks the storefront if it fails.
+export function trackProductEvent(productId: string, event: 'view' | 'cart' | 'link'): void {
+  try {
+    fetch(`${API_BASE}/products/${encodeURIComponent(productId)}/track`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event }),
+      keepalive: true
+    }).catch(() => {});
+  } catch {}
+}
+
+export interface ProductStatRow {
+  productId: string;
+  views: number;
+  linkVisits: number;
+  cartAdds: number;
+  unitsSold: number;
+  revenue: number;
+}
+
+export async function fetchAdminStats(token: string): Promise<ProductStatRow[]> {
+  const res = await fetch(`${API_BASE}/admin/stats`, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await res.json();
+  return data.stats || [];
+}
+
+// --- Backup ---
+
+// Downloads the full store backup as a JSON file in the browser.
+export async function downloadBackup(token: string): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/admin/backup`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return false;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sabreen-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  return true;
+}
