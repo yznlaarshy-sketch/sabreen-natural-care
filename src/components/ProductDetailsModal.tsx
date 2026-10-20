@@ -303,8 +303,8 @@ export const ProductDetailsModal: React.FC<ProductDetailsModalProps> = ({
             </button>
             <span className="w-8 text-center font-bold text-sm text-[#141416]">{qty}</span>
             <button
-              onClick={() => setQty(qty + 1)}
-              disabled={isOutOfStock}
+              onClick={() => setQty(Math.min(qty + 1, Math.max(1, product.stock)))}
+              disabled={isOutOfStock || qty >= product.stock}
               className="p-1.5 rounded-lg hover:bg-[#EAE5DC] text-[#141416] transition-colors disabled:opacity-50"
             >
               <Plus className="w-3.5 h-3.5" />

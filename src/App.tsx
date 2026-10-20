@@ -161,6 +161,19 @@ export default function App() {
     loadData();
   }, []);
 
+  // Quietly reloads the products (no loading screen) so stock numbers on screen are never stale.
+  const refreshProducts = async () => {
+    try {
+      setProducts(await fetchProducts());
+    } catch {}
+  };
+
+  // Keep stock numbers fresh while the visitor browses (once a minute)
+  useEffect(() => {
+    const timer = window.setInterval(refreshProducts, 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   // A shared product link (/?p=PRODUCT_ID) opens that product's details once the products are loaded
   const sharedLinkHandled = React.useRef(false);
   useEffect(() => {
@@ -226,25 +239,47 @@ export default function App() {
 
   // Cart Operations
   const handleAddToCart = (product: Product, quantity = 1) => {
+    // Never let the cart hold more than what is actually in stock
+    const liveProduct = products.find((p) => p.id === product.id) || product;
+    const inCart = cart.find((item) => item.product.id === product.id)?.quantity || 0;
+    const room = liveProduct.stock - inCart;
+    if (room <= 0) {
+      showToast(
+        liveProduct.stock <= 0
+          ? `نفذت الكمية من "${product.name}"`
+          : `المتوفر من "${product.name}" ${liveProduct.stock} قطعة فقط وهي كلها في سلتك`
+      );
+      return;
+    }
+    const allowed = Math.min(quantity, room);
     trackProductEvent(product.id, 'cart');
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
       if (existing) {
         return prev.map((item) =>
           item.product.id === product.id
-            ? { ...item, quantity: item.quantity + quantity }
+            ? { ...item, product: liveProduct, quantity: item.quantity + allowed }
             : item
         );
       }
-      return [...prev, { product, quantity }];
+      return [...prev, { product: liveProduct, quantity: allowed }];
     });
-    showToast(`تمت إضافة "${product.name}" إلى سلة المشتريات`);
+    showToast(
+      allowed < quantity
+        ? `أضفنا ${allowed} فقط، فهذا كل المتوفر من "${product.name}"`
+        : `تمت إضافة "${product.name}" إلى سلة المشتريات`
+    );
   };
 
   const handleUpdateQuantity = (productId: string, quantity: number) => {
     if (quantity <= 0) {
       handleRemoveFromCart(productId);
       return;
+    }
+    const liveStock = products.find((p) => p.id === productId)?.stock;
+    if (liveStock !== undefined && quantity > liveStock) {
+      showToast(`المتوفر ${liveStock} قطعة فقط`);
+      quantity = Math.max(1, liveStock);
     }
     setCart((prev) =>
       prev.map((item) =>
@@ -258,12 +293,14 @@ export default function App() {
   };
 
   const handleProceedToCheckout = () => {
+    refreshProducts();
     setIsCartOpen(false);
     setIsCheckoutOpen(true);
   };
 
   const handleOrderSuccess = (order: Order) => {
     setCart([]); // Clear cart after successful checkout
+    refreshProducts(); // stock just went down: show the new numbers right away
   };
 
   // Admin Login / Logout - Persistent Session Management
@@ -398,7 +435,10 @@ export default function App() {
       {/* Navbar */}
       <Navbar
         cartCount={totalCartCount}
-        onOpenCart={() => setIsCartOpen(true)}
+        onOpenCart={() => {
+          refreshProducts();
+          setIsCartOpen(true);
+        }}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         currentView={currentView}
