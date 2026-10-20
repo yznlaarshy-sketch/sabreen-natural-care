@@ -81,7 +81,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         {isOutOfStock && (
           <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center">
             <span className="bg-[#1A1A1A] text-[#FAF7F2] text-xs font-bold px-3 py-1.5 rounded-full border border-red-500/40 shadow-lg">
-              نفد من المخزون
+              نفذت الكمية
             </span>
           </div>
         )}
@@ -126,7 +126,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             }`}
           >
             <ShoppingBag className="w-3.5 h-3.5" />
-            <span>{isOutOfStock ? 'نفد' : 'أضف للسلة'}</span>
+            <span>{isOutOfStock ? 'نفذت الكمية' : 'أضف للسلة'}</span>
           </button>
         </div>
       </div>

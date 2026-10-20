@@ -4,7 +4,7 @@ import {
   Clock, CheckCircle, XCircle, Trash2, Plus, Edit, Eye, EyeOff,
   Phone, MessageCircle, ExternalLink, AlertTriangle, Sparkles, Image,
   DollarSign, ShieldAlert, ArrowLeft, RefreshCw, Layers, Lock, ShieldCheck,
-  Facebook, Instagram, MessageSquare, Link2, Download, BellRing
+  Facebook, Instagram, MessageSquare, Link2, Download, BellRing, FileText
 } from 'lucide-react';
 import { AdminChatPanel, useAdminChats } from './AdminChatPanel';
 import { Product, Order, StoreSettings, OrderStatus, PromoVideo, Review, Visitor } from '../types';
@@ -734,6 +734,53 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  // --- Printable invoice for an order (opens a print-ready page) ---
+  const printInvoice = (order: Order) => {
+    const esc = (v: unknown) =>
+      String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const subtotal = order.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    const shipping = Math.max(0, order.totalAmount - subtotal);
+    const storeName = initialSettings?.storeName || 'Sabreen Basheer Natural Care';
+    const statusLabel: Record<string, string> = {
+      pending: 'قيد المراجعة',
+      approved: 'معتمد',
+      rejected: 'مرفوض',
+      completed: 'مكتمل',
+    };
+    const rows = order.items
+      .map(
+        (i, n) =>
+          `<tr><td>${n + 1}</td><td>${esc(i.productName)}</td><td>${i.quantity}</td><td>${i.price} ₪</td><td>${i.price * i.quantity} ₪</td></tr>`
+      )
+      .join('');
+    const html = `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>فاتورة ${esc(order.id)}</title>
+<style>
+body{font-family:Tahoma,Arial,sans-serif;margin:0;padding:32px;color:#141416}
+h1{margin:0;font-size:22px} .muted{color:#6b6355;font-size:13px}
+.head{display:flex;justify-content:space-between;border-bottom:2px solid #D4AF37;padding-bottom:12px;margin-bottom:16px}
+table{width:100%;border-collapse:collapse;margin-top:12px;font-size:14px}
+th,td{border:1px solid #e6e1d8;padding:8px;text-align:right} th{background:#faf7f2}
+.tot{margin-top:12px;text-align:left;font-size:14px;line-height:1.9} .tot b{font-size:17px}
+@media print{body{padding:12px}}
+</style></head><body>
+<div class="head"><div><h1>${esc(storeName)}</h1><div class="muted">فاتورة طلب</div></div>
+<div style="text-align:left"><div><b>رقم الطلب:</b> #${esc(order.id)}</div><div class="muted">${new Date(order.createdAt).toLocaleString('ar')}</div></div></div>
+<div><b>الزبون:</b> ${esc(order.customerName)}<br><b>الهاتف:</b> ${esc(order.phone)}<br><b>المنطقة:</b> ${esc(order.deliveryZone || '')}<br><b>العنوان:</b> ${esc(order.address)}<br><b>الحالة:</b> ${esc(statusLabel[order.status] || order.status)}</div>
+<table><thead><tr><th>#</th><th>المنتج</th><th>الكمية</th><th>السعر</th><th>المجموع</th></tr></thead><tbody>${rows}</tbody></table>
+<div class="tot">المجموع الفرعي: ${subtotal} ₪<br>${shipping > 0 ? `رسوم التوصيل: ${shipping} ₪<br>` : ''}<b>الإجمالي: ${order.totalAmount} ₪</b></div>
+<p class="muted" style="margin-top:28px">شكراً لثقتكم بنا 🌿</p>
+<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script>
+</body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) {
+      showNotification('المتصفح منع النافذة، اسمحي بالنوافذ المنبثقة ثم أعيدي المحاولة', 'error');
+      return;
+    }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+  };
+
   // Computed Orders Statistics
   const pendingCount = orders.filter((o) => o.status === 'pending').length;
   const approvedCount = orders.filter((o) => o.status === 'approved').length;
@@ -1336,6 +1383,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <span>تحديد كـ "مكتمل وتم التسليم"</span>
                             </button>
                           )}
+
+                          <button
+                            type="button"
+                            onClick={() => printInvoice(order)}
+                            className="px-4 py-2 rounded-xl bg-[#222227] hover:bg-[#2A2A30] text-[#FAF7F2] border border-[#33333A] font-bold text-xs flex items-center gap-1.5 transition-all"
+                            title="فتح فاتورة جاهزة للطباعة أو الحفظ PDF"
+                          >
+                            <FileText className="w-4 h-4" />
+                            <span>الفاتورة</span>
+                          </button>
                         </div>
 
                         {/* Order Deletion Actions (Custom Modal) */}

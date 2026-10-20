@@ -171,6 +171,31 @@ async function migrateOldReceipts(): Promise<void> {
   }
 }
 
+// --- Owner email alerts (optional): needs RESEND_API_KEY and NOTIFY_EMAIL on the host ---
+// If either is missing nothing is sent and the store behaves exactly as before.
+const htmlEsc = (v: unknown) =>
+  String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function notifyOwnerByEmail(subject: string, bodyHtml: string): void {
+  const key = process.env.RESEND_API_KEY;
+  const to = process.env.NOTIFY_EMAIL;
+  if (!key || !to) return;
+  fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: process.env.NOTIFY_FROM || 'Sabreen Store <onboarding@resend.dev>',
+      to: [to],
+      subject,
+      html: `<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;line-height:1.7">${bodyHtml}</div>`,
+    }),
+  })
+    .then(async (r) => {
+      if (!r.ok) console.error('Email alert failed:', r.status, await r.text());
+    })
+    .catch((e) => console.error('Email alert error:', e));
+}
+
 const app = express();
 app.disable('x-powered-by'); // don't advertise the server framework
 const PORT = Number(process.env.PORT || 3000);
@@ -778,6 +803,22 @@ app.post('/api/orders', async (req, res) => {
     };
   });
 
+  // Stock check: the same product may appear in several lines, so add them up first.
+  const wanted = new Map<string, number>();
+  verifiedItems.forEach((i: any) => wanted.set(i.productId, (wanted.get(i.productId) || 0) + i.quantity));
+  const stockProblem = (): string | null => {
+    for (const [pid, qty] of wanted) {
+      const prod = data.products.find(p => p.id === pid)!;
+      if (prod.stock <= 0) return `نفذت الكمية من "${prod.name}"، يرجى إزالته من السلة.`;
+      if (qty > prod.stock) return `المتوفر من "${prod.name}" ${prod.stock} قطعة فقط، يرجى تعديل الكمية.`;
+    }
+    return null;
+  };
+  const earlyStockError = stockProblem();
+  if (earlyStockError) {
+    return res.status(400).json({ success: false, error: earlyStockError });
+  }
+
   // Add delivery fee if applicable
   const shippingFee = data.settings.shippingFee || 0;
   const finalTotal = totalAmount + shippingFee;
@@ -796,6 +837,13 @@ app.post('/api/orders', async (req, res) => {
     console.error('Receipt upload failed, keeping image inside the order:', e);
   }
 
+  // Check again right before taking the stock: another order may have been placed while the image was uploading.
+  const lateStockError = stockProblem();
+  if (lateStockError) {
+    await deleteReceiptImage(storedReceipt);
+    return res.status(400).json({ success: false, error: lateStockError });
+  }
+
   const newOrder: Order = {
     id: orderId,
     createdAt: Date.now(),
@@ -811,7 +859,19 @@ app.post('/api/orders', async (req, res) => {
   };
 
   data.orders.unshift(newOrder);
+  for (const [pid, qty] of wanted) {
+    const prod = data.products.find(p => p.id === pid);
+    if (prod) prod.stock = Math.max(0, prod.stock - qty);
+  }
   await saveStoreData(data);
+
+  notifyOwnerByEmail(
+    `طلب جديد #${newOrder.id} - ${newOrder.totalAmount} ₪`,
+    `<h3>طلب جديد #${htmlEsc(newOrder.id)}</h3>` +
+      `<p>الاسم: ${htmlEsc(newOrder.customerName)}<br>الهاتف: ${htmlEsc(newOrder.phone)}<br>المنطقة: ${htmlEsc(newOrder.deliveryZone)}<br>العنوان: ${htmlEsc(newOrder.address)}</p>` +
+      `<ul>${newOrder.items.map(i => `<li>${htmlEsc(i.productName)} × ${i.quantity} = ${i.price * i.quantity} ₪</li>`).join('')}</ul>` +
+      `<p><b>الإجمالي (مع التوصيل المحدد بالمتجر): ${newOrder.totalAmount} ₪</b></p><p>راجعي الإيصال من لوحة الإدارة.</p>`
+  );
 
   res.status(201).json({
     success: true,
@@ -1224,6 +1284,19 @@ app.put('/api/admin/orders/:id', requireAdminAuth, async (req, res) => {
     return res.status(404).json({ success: false, error: 'الطلب غير موجود' });
   }
 
+  const prevStatus = data.orders[orderIndex].status;
+  if (status === 'rejected' && prevStatus !== 'rejected') {
+    // A rejected order gives its quantities back to the stock.
+    for (const it of data.orders[orderIndex].items) {
+      const prod = data.products.find(p => p.id === it.productId);
+      if (prod) prod.stock += it.quantity;
+    }
+  } else if (prevStatus === 'rejected' && status && status !== 'rejected') {
+    for (const it of data.orders[orderIndex].items) {
+      const prod = data.products.find(p => p.id === it.productId);
+      if (prod) prod.stock = Math.max(0, prod.stock - it.quantity);
+    }
+  }
   if (status) data.orders[orderIndex].status = status;
   if (adminNote !== undefined) data.orders[orderIndex].adminNote = adminNote;
   if (rejectionReason !== undefined) data.orders[orderIndex].rejectionReason = rejectionReason;
@@ -1240,6 +1313,13 @@ app.delete('/api/admin/orders/:id', requireAdminAuth, async (req, res) => {
   const orderToDelete = data.orders.find(o => o.id === id);
   if (!orderToDelete) {
     return res.status(404).json({ success: false, error: 'الطلب غير موجود' });
+  }
+  if (orderToDelete.status === 'pending' || orderToDelete.status === 'approved') {
+    // Deleting an order that never completed returns its quantities to the stock.
+    for (const it of orderToDelete.items) {
+      const prod = data.products.find(p => p.id === it.productId);
+      if (prod) prod.stock += it.quantity;
+    }
   }
   data.orders = data.orders.filter(o => o.id !== id);
 
@@ -1405,6 +1485,10 @@ app.post('/api/chat/start', async (req, res) => {
     data.chats = data.chats.slice(0, CHAT_MAX_CONVERSATIONS);
   }
   await saveStoreData(data);
+  notifyOwnerByEmail(
+    `رسالة جديدة من ${chat.name}`,
+    `<p>محادثة جديدة من <b>${htmlEsc(chat.name)}</b> (${htmlEsc(chat.phone)}):</p><blockquote>${htmlEsc(message)}</blockquote>`
+  );
 
   res.status(201).json({ success: true, token: chat.token, chat: toPublicChat(chat) });
 });
@@ -1432,9 +1516,17 @@ app.post('/api/chat/:id/messages', async (req, res) => {
   const message = sanitizeString(req.body?.message, CHAT_MAX_TEXT);
   if (!message) return res.status(400).json({ success: false, error: 'اكتب رسالتك أولاً' });
 
+  // Email only when the owner has no unread messages from this customer yet (avoids an email per message).
+  const wasQuiet = chat.unreadByAdmin === 0;
   pushChatMessage(chat, 'customer', message);
   addAutoReply(chat, message, false);
   await saveStoreData(getStoreData());
+  if (wasQuiet) {
+    notifyOwnerByEmail(
+      `رسالة جديدة من ${chat.name}`,
+      `<p>رسالة جديدة من <b>${htmlEsc(chat.name)}</b> (${htmlEsc(chat.phone)}):</p><blockquote>${htmlEsc(message)}</blockquote>`
+    );
+  }
   res.status(201).json({ success: true, chat: toPublicChat(chat) });
 });
 

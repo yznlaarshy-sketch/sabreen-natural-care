@@ -321,7 +321,7 @@ export const ProductDetailsModal: React.FC<ProductDetailsModalProps> = ({
             }`}
           >
             <ShoppingBag className="w-4 h-4" />
-            <span>{isOutOfStock ? 'نفد من المخزون' : `إضافة للسلة (${product.price * qty} ₪)`}</span>
+            <span>{isOutOfStock ? 'نفذت الكمية' : `إضافة للسلة (${product.price * qty} ₪)`}</span>
           </button>
         </div>
       </div>
