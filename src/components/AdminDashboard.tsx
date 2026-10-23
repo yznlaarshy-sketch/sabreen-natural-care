@@ -308,6 +308,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (activeTab === 'products') loadStats();
   }, [activeTab]);
 
+  // Keep the product list fresh so the sold-out alert stays up to date.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      loadProducts();
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, [token]);
+
   const showNotification = (text: string, type: 'success' | 'error' = 'success') => {
     setFeedbackMessage({ type, text });
     setTimeout(() => setFeedbackMessage(null), 4000);
@@ -1096,6 +1104,26 @@ th,td{border:1px solid #e6e1d8;padding:8px;text-align:right} th{background:#faf7
       <div className="container mx-auto p-4 sm:p-6 flex-1 max-w-7xl">
         
         {/* ===================== TAB 1: ORDERS ===================== */}
+        {/* Sold-out alert (visible on every tab) */}
+        {products.filter((p) => p.stock <= 0).length > 0 && (
+          <div className="mb-4 p-4 rounded-2xl bg-rose-950/40 border border-rose-700/50 text-right flex items-start gap-3" dir="rtl">
+            <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+            <div className="text-xs text-rose-100 leading-relaxed">
+              <span className="font-bold block mb-1">تنبيه: نفذت الكمية من منتجات في المتجر</span>
+              <span>
+                {products.filter((p) => p.stock <= 0).map((p) => p.name).join('، ')}
+              </span>
+              <button
+                type="button"
+                onClick={() => setActiveTab('products')}
+                className="block mt-2 text-[#D4AF37] font-bold underline"
+              >
+                فتح إدارة المنتجات لتحديث الكمية
+              </button>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'orders' && (
           <div className="space-y-6">
             
