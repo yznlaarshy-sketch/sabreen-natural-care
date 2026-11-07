@@ -2,24 +2,70 @@ import { Product, Order, StoreSettings, Inquiry, Review, Visitor, Chat } from '.
 
 export const API_BASE = '/api';
 
+// Small local snapshots let the storefront remain useful when the connection is slow or briefly offline.
+function readLocalCache<T>(key: string): T | null {
+  try {
+    const value = localStorage.getItem(key);
+    return value ? (JSON.parse(value) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalCache<T>(key: string, value: T): void {
+  try {
+    const serialized = JSON.stringify(value);
+    // Avoid filling mobile storage with large product images or base64 data URLs.
+    if (serialized.length <= 1_500_000) localStorage.setItem(key, serialized);
+  } catch {
+    // Storage can be unavailable or full; network requests must still work.
+  }
+}
+
 export async function fetchProducts(): Promise<Product[]> {
-  const res = await fetch(`${API_BASE}/products`);
-  const data = await res.json();
-  return data.products || [];
+  const cached = readLocalCache<Product[]>('sb_public_products_cache');
+  try {
+    const res = await fetch(`${API_BASE}/products`);
+    if (!res.ok) throw new Error(`Products request failed: ${res.status}`);
+    const data = await res.json();
+    const products = Array.isArray(data.products) ? data.products : [];
+    writeLocalCache('sb_public_products_cache', products);
+    return products;
+  } catch (error) {
+    if (cached) return cached;
+    throw error;
+  }
 }
 
 export async function fetchAdminProducts(token: string): Promise<Product[]> {
-  const res = await fetch(`${API_BASE}/products`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  const data = await res.json();
-  return data.products || [];
+  const cached = readLocalCache<Product[]>('sb_admin_products_cache');
+  try {
+    const res = await fetch(`${API_BASE}/products`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error(`Admin products request failed: ${res.status}`);
+    const data = await res.json();
+    const products = Array.isArray(data.products) ? data.products : [];
+    writeLocalCache('sb_admin_products_cache', products);
+    return products;
+  } catch (error) {
+    if (cached) return cached;
+    throw error;
+  }
 }
 
 export async function fetchSettings(): Promise<StoreSettings> {
-  const res = await fetch(`${API_BASE}/settings`);
-  const data = await res.json();
-  return data.settings;
+  const cached = readLocalCache<StoreSettings>('sb_store_settings_cache');
+  try {
+    const res = await fetch(`${API_BASE}/settings`);
+    if (!res.ok) throw new Error(`Settings request failed: ${res.status}`);
+    const data = await res.json();
+    if (data.settings) writeLocalCache('sb_store_settings_cache', data.settings);
+    return data.settings || cached as StoreSettings;
+  } catch (error) {
+    if (cached) return cached;
+    throw error;
+  }
 }
 
 export async function submitOrder(orderData: {
