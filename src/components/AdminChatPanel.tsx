@@ -16,9 +16,18 @@ export function useAdminChats(token: string) {
   }, [token]);
 
   useEffect(() => {
-    refresh();
-    const timer = window.setInterval(refresh, 5000);
-    return () => window.clearInterval(timer);
+    const refreshWhenActive = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) void refresh();
+    };
+    refreshWhenActive();
+    const timer = window.setInterval(refreshWhenActive, 30000);
+    document.addEventListener('visibilitychange', refreshWhenActive);
+    window.addEventListener('online', refreshWhenActive);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshWhenActive);
+      window.removeEventListener('online', refreshWhenActive);
+    };
   }, [refresh]);
 
   return { chats, refresh };
