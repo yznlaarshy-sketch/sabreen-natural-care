@@ -744,7 +744,7 @@ export default function App() {
           onClose={handleCloseAdmin}
           initialSettings={settings}
           onSettingsUpdated={(newSettings) => setSettings(newSettings)}
-          onProductsUpdated={loadData}
+          onProductsUpdated={refreshProducts}
           onCredentialsUpdated={(newUsername) => {
             setAdminUsername(newUsername);
             try {
