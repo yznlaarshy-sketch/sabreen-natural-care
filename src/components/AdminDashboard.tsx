@@ -310,10 +310,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Keep the product list fresh so the sold-out alert stays up to date.
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      loadProducts();
-    }, 30000);
-    return () => window.clearInterval(timer);
+    const refreshWhenActive = () => {
+      if (document.visibilityState === "visible" && navigator.onLine) void loadProducts();
+    };
+    const timer = window.setInterval(refreshWhenActive, 120000);
+    document.addEventListener("visibilitychange", refreshWhenActive);
+    window.addEventListener("online", refreshWhenActive);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshWhenActive);
+      window.removeEventListener("online", refreshWhenActive);
+    };
   }, [token]);
 
   const showNotification = (text: string, type: 'success' | 'error' = 'success') => {
@@ -2635,10 +2642,10 @@ th,td{border:1px solid #e6e1d8;padding:8px;text-align:right} th{background:#faf7
 
       {/* ===================== MODAL: ADD / EDIT PRODUCT ===================== */}
       {showProductModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm overflow-y-auto" dir="rtl">
-          <div className="relative w-full max-w-2xl bg-[#17171A] border border-[#2F2F36] rounded-3xl p-6 shadow-2xl space-y-5 my-6">
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-sm overflow-y-auto overscroll-contain" style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))", paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }} dir="rtl">
+          <div className="relative w-full max-w-2xl max-h-[calc(100vh-1rem)] max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain bg-[#17171A] border border-[#2F2F36] rounded-2xl sm:rounded-3xl p-3 sm:p-6 shadow-2xl space-y-4 sm:space-y-5 my-0 sm:my-6">
             
-            <div className="flex items-center justify-between pb-3 border-b border-[#29292F]">
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 pb-3 pt-1 border-b border-[#29292F] bg-[#17171A]">
               <h3 className="text-lg font-bold text-[#FAF7F2] font-serif-luxury">
                 {editingProduct ? 'تعديل بيانات المنتج' : 'إضافة منتج طبيعي جديد للمتجر'}
               </h3>
