@@ -564,8 +564,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const updated = await updateProduct(token, editingProduct.id, payload);
         if (updated) {
           showNotification(`تم تعديل بيانات المنتج "${updated.name}" بنجاح`);
+          setProducts((currentProducts) => currentProducts.map((product) =>
+            product.id === updated.id ? updated : product
+          ));
           setShowProductModal(false);
-          loadProducts();
           onProductsUpdated();
         } else {
           showNotification('فشل تعديل المنتج', 'error');
@@ -574,8 +576,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const created = await createProduct(token, payload);
         if (created) {
           showNotification(`تمت إضافة المنتج الجديد "${created.name}" بنجاح مع شارة جديد`);
+          setProducts((currentProducts) => [
+            created,
+            ...currentProducts.filter((product) => product.id !== created.id)
+          ]);
           setShowProductModal(false);
-          loadProducts();
           onProductsUpdated();
         } else {
           showNotification('فشل إضافة المنتج', 'error');
