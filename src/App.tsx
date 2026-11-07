@@ -170,8 +170,17 @@ export default function App() {
 
   // Keep stock numbers fresh while the visitor browses (once a minute)
   useEffect(() => {
-    const timer = window.setInterval(refreshProducts, 60 * 1000);
-    return () => window.clearInterval(timer);
+    const refreshWhenActive = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) void refreshProducts();
+    };
+    const timer = window.setInterval(refreshWhenActive, 3 * 60 * 1000);
+    document.addEventListener('visibilitychange', refreshWhenActive);
+    window.addEventListener('online', refreshWhenActive);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshWhenActive);
+      window.removeEventListener('online', refreshWhenActive);
+    };
   }, []);
 
   // A shared product link (/?p=PRODUCT_ID) opens that product's details once the products are loaded
