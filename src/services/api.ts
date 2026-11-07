@@ -12,6 +12,14 @@ function readLocalCache<T>(key: string): T | null {
   }
 }
 
+export function getCachedProducts(): Product[] {
+  return readLocalCache<Product[]>('sb_public_products_cache') || [];
+}
+
+export function getCachedSettings(): StoreSettings | null {
+  return readLocalCache<StoreSettings>('sb_store_settings_cache');
+}
+
 function writeLocalCache<T>(key: string, value: T): void {
   try {
     const serialized = JSON.stringify(value);
