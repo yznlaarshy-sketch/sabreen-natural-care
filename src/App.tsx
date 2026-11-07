@@ -4,7 +4,7 @@ import {
   ShoppingBag, ShieldCheck, Heart, Leaf, Package, AlertCircle
 } from 'lucide-react';
 import { Product, CartItem, StoreSettings, Order } from './types';
-import { fetchProducts, fetchSettings, verifyAdminToken, fetchCurrentAdminUser, trackVisit, trackProductEvent } from './services/api';
+import { fetchProducts, fetchSettings, getCachedProducts, getCachedSettings, verifyAdminToken, fetchCurrentAdminUser, trackVisit, trackProductEvent } from './services/api';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
 import { PromoVideoBanner } from './components/PromoVideoBanner';
@@ -33,8 +33,8 @@ const isSecretAdminPath = () => {
 
 export default function App() {
   // Main Data
-  const [products, setProducts] = useState<Product[]>([]);
-  const [settings, setSettings] = useState<StoreSettings | null>(null);
+  const [products, setProducts] = useState<Product[]>(() => getCachedProducts());
+  const [settings, setSettings] = useState<StoreSettings | null>(() => getCachedSettings());
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -118,17 +118,25 @@ export default function App() {
 
   // Initial Data Load & Session Verification
   const loadData = async () => {
-    setLoading(true);
+    setLoading(products.length === 0 && !settings);
     setError(null);
     try {
-      const [prodsData, settingsData, currentAdmin] = await Promise.all([
+      const [prodsData, settingsData] = await Promise.all([
         fetchProducts(),
-        fetchSettings(),
-        fetchCurrentAdminUser()
+        fetchSettings()
       ]);
       setProducts(prodsData);
       setSettings(settingsData);
+    } catch (err: any) {
+      console.error('Error fetching store data:', err);
+      setError('تعذر تحميل بيانات المتجر، يرجى إعادة تحديث الصفحة.');
+    } finally {
+      setLoading(false);
+    }
 
+    // Admin identity and session verification happen in the background; they must not delay the storefront.
+    try {
+      const currentAdmin = await fetchCurrentAdminUser();
       if (currentAdmin) {
         setAdminUsername(currentAdmin);
         try {
@@ -136,7 +144,7 @@ export default function App() {
         } catch {}
       }
 
-      // Check and verify existing token if stored
+      // Check and verify existing token in the background.
       const savedToken = localStorage.getItem('sb_admin_token');
       if (savedToken) {
         const isValid = await verifyAdminToken(savedToken);
@@ -149,11 +157,8 @@ export default function App() {
           } catch {}
         }
       }
-    } catch (err: any) {
-      console.error('Error fetching store data:', err);
-      setError('تعذر تحميل بيانات المتجر، يرجى إعادة تحديث الصفحة.');
-    } finally {
-      setLoading(false);
+    } catch (err) {
+      console.warn('Admin session refresh skipped:', err);
     }
   };
 
