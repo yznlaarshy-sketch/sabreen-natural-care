@@ -465,7 +465,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const success = await deleteProduct(token, deleteConfirm.id);
         if (success) {
           showNotification(`تم حذف المنتج "${deleteConfirm.title}" بنجاح`);
-          await loadProducts();
+          setProducts((currentProducts) => currentProducts.filter((product) => product.id !== deleteConfirm.id));
           onProductsUpdated();
         } else {
           showNotification('تعذر حذف المنتج، يرجى المحاولة مرة أخرى', 'error');
